@@ -2,11 +2,14 @@ package com.pokerassistant.app;
 
 import android.app.Service;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -21,30 +24,50 @@ public class OverlayService extends Service {
     private View overlayView;
     private WindowManager.LayoutParams windowParams;
 
+    private TextView heroText;
+    private TextView boardText;
+    private TextView statusText;
+    private TextView resultText;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
+    private final Runnable refreshTask = new Runnable() {
+        @Override
+        public void run() {
+            updateHud();
+            handler.postDelayed(this, 1000);
+        }
+    };
+
     private int dp(float value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+        return (int) (value * getResources()
+                .getDisplayMetrics().density + 0.5f);
     }
 
-    private GradientDrawable background(int color, int strokeColor) {
+    private GradientDrawable background(int color, int stroke) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(12));
-        drawable.setStroke(dp(1), strokeColor);
+        drawable.setStroke(dp(1), stroke);
         return drawable;
     }
 
-    private Button makeButton(String label) {
-        Button button = new Button(this);
-        button.setText(label);
-        button.setTextColor(Color.rgb(220, 220, 228));
-        button.setTextSize(12);
-        button.setAllCaps(false);
-        button.setPadding(dp(8), 0, dp(8), 0);
-        button.setBackground(background(
-                Color.rgb(35, 35, 41),
-                Color.rgb(105, 105, 118)
-        ));
-        return button;
+    private TextView makeText(String text, int size, int color) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        view.setPadding(dp(4), dp(3), dp(4), dp(3));
+        return view;
+    }
+
+    private void addSection(LinearLayout parent, String title,
+                            TextView content) {
+        TextView heading = makeText(title, 10, Color.rgb(155, 155, 170));
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heading.setLetterSpacing(0.08f);
+        parent.addView(heading);
+        parent.addView(content);
     }
 
     @Override
@@ -62,63 +85,75 @@ public class OverlayService extends Service {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(12), dp(8), dp(12), dp(12));
         panel.setBackground(background(
-                Color.rgb(15, 15, 18),
-                Color.rgb(155, 155, 170)
+                Color.rgb(14, 14, 17),
+                Color.rgb(145, 145, 160)
         ));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setOrientation(LinearLayout.HORIZONTAL);
 
-        TextView title = new TextView(this);
-        title.setText("POKER ASSISTANT");
-        title.setTextColor(Color.rgb(220, 220, 228));
-        title.setTextSize(12);
+        TextView title = makeText("POKER ASSISTANT", 12,
+                Color.rgb(225, 225, 233));
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setPadding(dp(4), dp(8), dp(8), dp(8));
-
+        title.setLetterSpacing(0.08f);
         header.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        Button close = makeButton("×");
-        header.addView(close, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        Button close = new Button(this);
+        close.setText("×");
+        close.setTextSize(20);
+        close.setTextColor(Color.WHITE);
+        close.setAllCaps(false);
+        close.setPadding(0, 0, 0, 0);
+        close.setBackgroundColor(Color.TRANSPARENT);
+        header.addView(close, new LinearLayout.LayoutParams(dp(36), dp(36)));
 
         panel.addView(header);
 
         View divider = new View(this);
-        divider.setBackgroundColor(Color.rgb(95, 95, 105));
+        divider.setBackgroundColor(Color.rgb(105, 105, 118));
         LinearLayout.LayoutParams dividerParams =
                 new LinearLayout.LayoutParams(-1, dp(1));
-        dividerParams.setMargins(0, dp(4), 0, dp(10));
+        dividerParams.setMargins(0, dp(5), 0, dp(9));
         panel.addView(divider, dividerParams);
 
-        TextView status = new TextView(this);
-        status.setText("Плавающее окно активно");
-        status.setTextColor(Color.rgb(165, 165, 175));
-        status.setTextSize(12);
-        status.setPadding(dp(4), dp(4), dp(4), dp(12));
-        panel.addView(status);
+        heroText = makeText("Карты не выбраны", 17,
+                Color.rgb(235, 235, 242));
+        boardText = makeText("—", 17,
+                Color.rgb(235, 235, 242));
+        statusText = makeText("Ожидание данных", 11,
+                Color.rgb(220, 100, 100));
+        resultText = makeText(
+                "Комбинация: —\nЭквити: —\n\nБанк: не распознан\n" +
+                "Ставка: не распознана\nКолл: не распознан\n" +
+                "Шансы банка: —\nEV: —",
+                12, Color.rgb(220, 220, 228));
+        resultText.setLineSpacing(dp(3), 1f);
 
-        Button open = makeButton("ОТКРЫТЬ КАЛЬКУЛЯТОР");
-        panel.addView(open, new LinearLayout.LayoutParams(-1, dp(44)));
+        addSection(panel, "ВАШИ КАРТЫ", heroText);
+        addSection(panel, "КАРТЫ СТОЛА", boardText);
 
-        TextView hint = new TextView(this);
-        hint.setText("Перетаскивай окно за заголовок.");
-        hint.setTextColor(Color.rgb(125, 125, 138));
-        hint.setTextSize(10);
-        hint.setPadding(dp(4), dp(8), dp(4), 0);
-        panel.addView(hint);
+        View divider2 = new View(this);
+        divider2.setBackgroundColor(Color.rgb(65, 65, 75));
+        LinearLayout.LayoutParams divider2Params =
+                new LinearLayout.LayoutParams(-1, dp(1));
+        divider2Params.setMargins(0, dp(8), 0, dp(8));
+        panel.addView(divider2, divider2Params);
+
+        addSection(panel, "МАТЕМАТИКА", resultText);
+        panel.addView(statusText);
 
         windowParams = new WindowManager.LayoutParams(
-                dp(260),
+                dp(280),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
         );
+
         windowParams.gravity = Gravity.TOP | Gravity.START;
-        windowParams.x = dp(16);
-        windowParams.y = dp(110);
+        windowParams.x = dp(12);
+        windowParams.y = dp(100);
 
         overlayView = panel;
 
@@ -131,13 +166,6 @@ public class OverlayService extends Service {
         }
 
         close.setOnClickListener(v -> stopSelf());
-
-        open.setOnClickListener(v -> {
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(intent);
-        });
 
         title.setOnTouchListener(new View.OnTouchListener() {
             private int startX;
@@ -156,12 +184,15 @@ public class OverlayService extends Service {
                         return true;
 
                     case MotionEvent.ACTION_MOVE:
-                        windowParams.x = startX + (int) (event.getRawX() - touchX);
-                        windowParams.y = startY + (int) (event.getRawY() - touchY);
+                        windowParams.x = startX
+                                + (int) (event.getRawX() - touchX);
+                        windowParams.y = startY
+                                + (int) (event.getRawY() - touchY);
 
                         try {
                             if (overlayView != null) {
-                                windowManager.updateViewLayout(overlayView, windowParams);
+                                windowManager.updateViewLayout(
+                                        overlayView, windowParams);
                             }
                         } catch (Exception ignored) {
                         }
@@ -175,15 +206,43 @@ public class OverlayService extends Service {
                 }
             }
         });
+
+        updateHud();
+        handler.postDelayed(refreshTask, 1000);
+    }
+
+    private void updateHud() {
+        if (heroText == null || boardText == null
+                || resultText == null || statusText == null) {
+            return;
+        }
+
+        SharedPreferences prefs =
+                getSharedPreferences("poker_hud", MODE_PRIVATE);
+
+        heroText.setText(prefs.getString("hero", "Карты не выбраны"));
+        boardText.setText(prefs.getString("board", "—"));
+        resultText.setText(prefs.getString(
+                "result",
+                "Комбинация: —\nЭквити: —\n\nБанк: не распознан\n" +
+                "Ставка: не распознана\nКолл: не распознан\n" +
+                "Шансы банка: —\nEV: —"
+        ));
+        statusText.setText(prefs.getString(
+                "status", "Ожидание данных"
+        ));
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        updateHud();
         return START_NOT_STICKY;
     }
 
     @Override
     public void onDestroy() {
+        handler.removeCallbacks(refreshTask);
+
         if (overlayView != null && windowManager != null) {
             try {
                 windowManager.removeView(overlayView);
@@ -191,6 +250,7 @@ public class OverlayService extends Service {
             }
             overlayView = null;
         }
+
         super.onDestroy();
     }
 

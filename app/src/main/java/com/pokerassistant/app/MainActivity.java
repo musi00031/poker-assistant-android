@@ -462,15 +462,59 @@ public class MainActivity extends Activity {
                     }
 
                     refreshCardButtons();
+                    calculateCards();
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
+    }
+
+
+    private void publishOverlayState() {
+        StringBuilder hero = new StringBuilder();
+        for (PokerEngine.Card card : heroCards) {
+            if (hero.length() > 0) hero.append("   ");
+            hero.append(card == null ? "--" : cardLabel(card));
+        }
+
+        StringBuilder board = new StringBuilder();
+        for (PokerEngine.Card card : boardCards) {
+            if (card == null) continue;
+            if (board.length() > 0) board.append("   ");
+            board.append(cardLabel(card));
+        }
+
+        String details = cardResult == null
+                ? "Ожидание расчёта"
+                : cardResult.getText().toString();
+
+        String status = "Результаты ручного выбора карт";
+
+        if (heroCards[0] == null || heroCards[1] == null) {
+            status = "Выбери две свои карты";
+        } else if (details.startsWith("Ошибка")
+                || details.startsWith("Для борда")
+                || details.startsWith("Заполняй")) {
+            status = "Нужна проверка данных";
+        } else if (details.contains("Эквити против случайной руки")) {
+            status = "Эквити рассчитано против одной случайной руки";
+        }
+
+        getSharedPreferences("poker_hud", MODE_PRIVATE)
+                .edit()
+                .putString("hero", hero.toString())
+                .putString("board", board.length() == 0
+                        ? "Префлоп / карты не выбраны"
+                        : board.toString())
+                .putString("result", details)
+                .putString("status", status)
+                .apply();
     }
 
     private void calculateCards() {
         try {
             if (heroCards[0] == null || heroCards[1] == null) {
                 cardResult.setText("Сначала выбери две свои карты.");
+                publishOverlayState();
                 return;
             }
 
@@ -529,9 +573,11 @@ public class MainActivity extends Activity {
                     equity.losses,
                     equity.simulations
             ));
+            publishOverlayState();
 
         } catch (Exception e) {
             cardResult.setText("Ошибка расчёта: " + e.getMessage());
+            publishOverlayState();
         }
     }
 
