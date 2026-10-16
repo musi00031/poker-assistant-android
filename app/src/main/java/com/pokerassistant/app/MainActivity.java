@@ -48,6 +48,12 @@ public class MainActivity extends Activity {
     private EditText equityInput;
     private TextView result;
 
+    // CAPTURE_SERVICE_LINK_V1
+    private android.content.BroadcastReceiver captureServiceReceiver;
+    private int pendingCaptureResultCode;
+    private Intent pendingCaptureData;
+    private boolean captureReceiverRegistered = false;
+
     private MediaProjectionManager projectionManager;
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
@@ -569,6 +575,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Захват экрана недоступен", Toast.LENGTH_LONG).show();
             return;
         }
+
         frameCaptured = false;
         startActivityForResult(
                 projectionManager.createScreenCaptureIntent(),
@@ -587,15 +594,116 @@ public class MainActivity extends Activity {
             return;
         }
 
+        pendingCaptureResultCode = resultCode;
+        pendingCaptureData = data;
+
+        registerCaptureServiceReceiver();
+
+        try {
+            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+        } catch (Exception e) {
+            unregisterCaptureServiceReceiver();
+            pendingCaptureData = null;
+            Toast.makeText(
+                    this,
+                    "Не удалось запустить службу захвата: " + e.getMessage(),
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+    private void registerCaptureServiceReceiver() {
+        unregisterCaptureServiceReceiver();
+
+        captureServiceReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!ScreenCaptureService.ACTION_READY.equals(intent.getAction())) {
+                    return;
+                }
+
+                unregisterCaptureServiceReceiver();
+
+                String serviceError = intent.getStringExtra("capture_service_error");
+                if (serviceError != null) {
+                    pendingCaptureData = null;
+                    stopCaptureService();
+                    Toast.makeText(
+                            MainActivity.this,
+                            "Ошибка службы захвата: " + serviceError,
+                            Toast.LENGTH_LONG
+                    ).show();
+                    return;
+                }
+
+                if (pendingCaptureData == null) {
+                    stopCaptureService();
+                    return;
+                }
+
+                startCaptureAfterServiceReady(
+                        pendingCaptureResultCode,
+                        pendingCaptureData
+                );
+
+                pendingCaptureData = null;
+            }
+        };
+
+        android.content.IntentFilter filter =
+                new android.content.IntentFilter(ScreenCaptureService.ACTION_READY);
+
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(
+                    captureServiceReceiver,
+                    filter,
+                    Context.RECEIVER_NOT_EXPORTED
+            );
+        } else {
+            registerReceiver(captureServiceReceiver, filter);
+        }
+
+        captureReceiverRegistered = true;
+    }
+
+    private void unregisterCaptureServiceReceiver() {
+        if (captureReceiverRegistered && captureServiceReceiver != null) {
+            try {
+                unregisterReceiver(captureServiceReceiver);
+            } catch (Exception ignored) {
+            }
+        }
+
+        captureReceiverRegistered = false;
+        captureServiceReceiver = null;
+    }
+
+    private void startCaptureAfterServiceReady(int resultCode, Intent data) {
         try {
             projection = projectionManager.getMediaProjection(resultCode, data);
+
             if (projection == null) {
-                Toast.makeText(this, "Не удалось начать захват", Toast.LENGTH_LONG).show();
+                stopCaptureService();
+                Toast.makeText(
+                        this,
+                        "Не удалось начать захват",
+                        Toast.LENGTH_LONG
+                ).show();
                 return;
             }
 
             imageReader = ImageReader.newInstance(
-                    screenWidth, screenHeight, PixelFormat.RGBA_8888, 2);
+                    screenWidth,
+                    screenHeight,
+                    PixelFormat.RGBA_8888,
+                    2
+            );
 
             projection.registerCallback(new MediaProjection.Callback() {
                 @Override
@@ -612,15 +720,19 @@ public class MainActivity extends Activity {
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                     imageReader.getSurface(),
                     null,
-                    handler);
+                    handler
+            );
 
             handler.postDelayed(this::readCapturedFrame, 900);
 
         } catch (Exception e) {
             releaseCaptureResources();
-            Toast.makeText(this,
+
+            Toast.makeText(
+                    this,
                     "Ошибка захвата: " + e.getMessage(),
-                    Toast.LENGTH_LONG).show();
+                    Toast.LENGTH_LONG
+            ).show();
         }
     }
 
@@ -719,13 +831,27 @@ public class MainActivity extends Activity {
             imageReader = null;
         }
         if (projection != null) {
-            projection.stop();
+            MediaProjection oldProjection = projection;
             projection = null;
+            try {
+                oldProjection.stop();
+            } catch (Exception ignored) {
+            }
+        }
+        stopCaptureService();
+    }
+
+    private void stopCaptureService() {
+        try {
+            stopService(new Intent(this, ScreenCaptureService.class));
+        } catch (Exception ignored) {
         }
     }
 
     @Override
     protected void onDestroy() {
+        unregisterCaptureServiceReceiver();
+        pendingCaptureData = null;
         releaseCaptureResources();
         super.onDestroy();
     }
