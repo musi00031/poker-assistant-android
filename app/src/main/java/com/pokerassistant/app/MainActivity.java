@@ -47,6 +47,10 @@ public class MainActivity extends Activity {
     private EditText callInput;
     private EditText equityInput;
     private TextView result;
+    private TextView captureStatusView;
+    private TextView captureFramesView;
+    private TextView ocrResultView;
+    private Button captureButton;
 
     // CAPTURE_SERVICE_LINK_V1
     private android.content.BroadcastReceiver captureServiceReceiver;
@@ -294,14 +298,37 @@ public class MainActivity extends Activity {
         captureInfo.setPadding(0, dp(8), 0, dp(12));
         root.addView(captureInfo);
 
-        Button capture = makeButton("ЗАХВАТИТЬ ЭКРАН");
-        root.addView(capture, new LinearLayout.LayoutParams(-1, dp(54)));
+        captureStatusView = new TextView(this);
+        captureStatusView.setText("● Демонстрация экрана не активна");
+        captureStatusView.setTextColor(MUTED);
+        captureStatusView.setTextSize(14);
+        captureStatusView.setPadding(0, dp(12), 0, dp(8));
+        root.addView(captureStatusView);
 
-        Button overlay = makeButton("ЗАПУСТИТЬ ПЛАВАЮЩЕЕ ОКНО");
-        LinearLayout.LayoutParams overlayParams =
-                new LinearLayout.LayoutParams(-1, dp(54));
-        overlayParams.setMargins(0, dp(10), 0, dp(8));
-        root.addView(overlay, overlayParams);
+        captureFramesView = new TextView(this);
+        captureFramesView.setText("Обработано кадров: 0");
+        captureFramesView.setTextColor(MUTED);
+        captureFramesView.setTextSize(12);
+        root.addView(captureFramesView);
+
+        TextView ocrTitle = new TextView(this);
+        ocrTitle.setText("РАСПОЗНАННЫЙ ТЕКСТ");
+        ocrTitle.setTextColor(SILVER);
+        ocrTitle.setTextSize(12);
+        ocrTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        ocrTitle.setPadding(0, dp(16), 0, dp(8));
+        root.addView(ocrTitle);
+
+        ocrResultView = new TextView(this);
+        ocrResultView.setText("Ожидание запуска распознавания.");
+        ocrResultView.setTextColor(WHITE);
+        ocrResultView.setTextSize(14);
+        ocrResultView.setPadding(dp(12), dp(12), dp(12), dp(12));
+        ocrResultView.setBackgroundColor(PANEL);
+        root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, -2));
+
+        captureButton = makeButton("НАЧАТЬ ДЕМОНСТРАЦИЮ ЭКРАНА");
+        root.addView(captureButton, new LinearLayout.LayoutParams(-1, dp(54)));
 
         TextView privacy = new TextView(this);
         privacy.setText("Захват запускается только после твоего подтверждения.");
@@ -311,8 +338,18 @@ public class MainActivity extends Activity {
         root.addView(privacy);
 
         calculate.setOnClickListener(v -> calculate());
-        capture.setOnClickListener(v -> requestScreenCapture());
-        overlay.setOnClickListener(v -> requestOverlayPermissionOrStart());
+        captureButton.setOnClickListener(v -> {
+            if (captureActive) {
+                releaseCaptureResources();
+                updateCaptureStatus("○ Демонстрация остановлена", MUTED);
+                if (ocrResultView != null) {
+                    ocrResultView.setText("Захват остановлен.");
+                }
+            } else {
+                requestScreenCapture();
+            }
+        });
+
 
         setContentView(scroll);
         calculate();
@@ -321,55 +358,8 @@ public class MainActivity extends Activity {
 
     // CARD_PICKER_SECTION: ручной выбор карт
 
-    private void requestOverlayPermissionOrStart() {
-        if (android.provider.Settings.canDrawOverlays(this)) {
-            overlayPermissionPending = false;
-            startService(new Intent(this, OverlayService.class));
-            Toast.makeText(this, "Плавающее окно запущено", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        overlayPermissionPending = true;
-        Intent settingsIntent = new Intent(
-                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                android.net.Uri.parse("package:" + getPackageName())
-        );
-
-        try {
-            startActivity(settingsIntent);
-        } catch (Exception e) {
-            overlayPermissionPending = false;
-            Toast.makeText(
-                    this,
-                    "Не удалось открыть настройки разрешения",
-                    Toast.LENGTH_LONG
-            ).show();
-        }
-    }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-
-        if (overlayPermissionPending) {
-            overlayPermissionPending = false;
-
-            if (android.provider.Settings.canDrawOverlays(this)) {
-                startService(new Intent(this, OverlayService.class));
-                Toast.makeText(
-                        this,
-                        "Плавающее окно запущено",
-                        Toast.LENGTH_SHORT
-                ).show();
-            } else {
-                Toast.makeText(
-                        this,
-                        "Разрешение не предоставлено",
-                        Toast.LENGTH_SHORT
-                ).show();
-            }
-        }
-    }
 
     private String cardLabel(PokerEngine.Card card) {
         if (card == null) return "--";
@@ -687,6 +677,10 @@ public class MainActivity extends Activity {
         }
 
         frameCaptured = false;
+        updateCaptureStatus("◷ Ожидание разрешения Android…", SILVER);
+        if (ocrResultView != null) {
+            ocrResultView.setText("Подтверди системный запрос на демонстрацию экрана.");
+        }
         startActivityForResult(
                 projectionManager.createScreenCaptureIntent(),
                 SCREEN_CAPTURE_REQUEST);
@@ -700,6 +694,10 @@ public class MainActivity extends Activity {
         if (requestCode != SCREEN_CAPTURE_REQUEST) return;
 
         if (resultCode != RESULT_OK || data == null) {
+            updateCaptureStatus("○ Демонстрация не активна", MUTED);
+            if (ocrResultView != null) {
+                ocrResultView.setText("Разрешение на захват не предоставлено.");
+            }
             Toast.makeText(this, "Захват отменён", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -835,6 +833,16 @@ public class MainActivity extends Activity {
 
             captureActive = true;
             capturedFrames = 0;
+            updateCaptureStatus("● Демонстрация экрана активна", Color.rgb(90, 220, 130));
+            if (captureFramesView != null) {
+                captureFramesView.setText("Обработано кадров: 0");
+            }
+            if (ocrResultView != null) {
+                ocrResultView.setText("Захват запущен. Ожидание распознавания текста…");
+            }
+            if (captureButton != null) {
+                captureButton.setText("ОСТАНОВИТЬ ДЕМОНСТРАЦИЮ");
+            }
             handler.removeCallbacks(captureFrameTask);
             handler.postDelayed(captureFrameTask, 500);
 
@@ -901,6 +909,9 @@ public class MainActivity extends Activity {
             );
 
             capturedFrames++;
+            if (captureFramesView != null && capturedFrames % 3 == 0) {
+                captureFramesView.setText("Обработано кадров: " + capturedFrames);
+            }
             runOcrOnFrame(frame);
 
         } catch (Exception e) {
@@ -974,6 +985,22 @@ public class MainActivity extends Activity {
                                 .putString("ocr_text", detected)
                                 .putString("ocr_status", status)
                                 .apply();
+
+                        runOnUiThread(() -> {
+                            if (ocrResultView != null) {
+                                ocrResultView.setText(
+                                        detected.isEmpty()
+                                                ? "Текст не найден. Попробуй открыть стол крупнее и с хорошей контрастностью."
+                                                : detected
+                                );
+                            }
+                            updateCaptureStatus(
+                                    detected.isEmpty()
+                                            ? "● Захват активен · текст не найден"
+                                            : "● Захват активен · текст распознан",
+                                    detected.isEmpty() ? SILVER : Color.rgb(90, 220, 130)
+                            );
+                        });
                     } finally {
                         if (!bitmapForOcr.isRecycled()) {
                             bitmapForOcr.recycle();
@@ -989,6 +1016,13 @@ public class MainActivity extends Activity {
                                 "Ошибка распознавания текста",
                                 error
                         );
+                        runOnUiThread(() -> {
+                            if (ocrResultView != null) {
+                                ocrResultView.setText(
+                                        "Ошибка OCR: " + error.getMessage()
+                                );
+                            }
+                        });
                     } finally {
                         if (!bitmapForOcr.isRecycled()) {
                             bitmapForOcr.recycle();
@@ -1004,49 +1038,25 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showCapturedImage(Bitmap bitmap) {
-        ImageView imageView = new ImageView(this);
-        imageView.setImageBitmap(bitmap);
-        imageView.setAdjustViewBounds(true);
-        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        imageView.setBackgroundColor(Color.BLACK);
 
-        TextView heading = new TextView(this);
-        heading.setText("ЗАХВАЧЕННЫЙ КАДР");
-        heading.setTextColor(SILVER);
-        heading.setTextSize(13);
-        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        heading.setPadding(dp(16), dp(16), dp(16), dp(12));
 
-        TextView explanation = new TextView(this);
-        explanation.setText(
-                "Это проверочный кадр. Автоматическое распознавание карт и ставок пока не подключено.");
-        explanation.setTextColor(MUTED);
-        explanation.setTextSize(12);
-        explanation.setPadding(dp(16), dp(8), dp(16), dp(16));
-
-        Button close = makeButton("ЗАКРЫТЬ");
-        close.setOnClickListener(v -> finishCapturePreview());
-
-        LinearLayout preview = new LinearLayout(this);
-        preview.setOrientation(LinearLayout.VERTICAL);
-        preview.setBackgroundColor(BG);
-        preview.addView(heading);
-        preview.addView(imageView, new LinearLayout.LayoutParams(
-                -1, 0, 1f));
-        preview.addView(explanation);
-        preview.addView(close, new LinearLayout.LayoutParams(
-                -1, dp(52)));
-
-        setContentView(preview);
-    }
-
-    private void finishCapturePreview() {
-        recreate();
+    private void updateCaptureStatus(String message, int color) {
+        if (captureStatusView != null) {
+            captureStatusView.setText(message);
+            captureStatusView.setTextColor(color);
+        }
+        if (captureButton != null) {
+            captureButton.setText(
+                    captureActive
+                            ? "ОСТАНОВИТЬ ДЕМОНСТРАЦИЮ"
+                            : "НАЧАТЬ ДЕМОНСТРАЦИЮ ЭКРАНА"
+            );
+        }
     }
 
     private void releaseCaptureResources() {
         captureActive = false;
+        updateCaptureStatus("○ Демонстрация экрана не активна", MUTED);
         if (handler != null) handler.removeCallbacks(captureFrameTask);
         if (virtualDisplay != null) {
             virtualDisplay.release();
