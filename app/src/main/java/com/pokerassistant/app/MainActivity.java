@@ -79,9 +79,6 @@ public class MainActivity extends Activity {
     private final Button[] heroCardButtons = new Button[2];
     private final Button[] boardCardButtons = new Button[5];
     private TextView cardResult;
-    private boolean overlayPermissionPending = false;
-
-
     private int dp(float value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -461,53 +458,12 @@ public class MainActivity extends Activity {
     }
 
 
-    private void publishOverlayState() {
-        StringBuilder hero = new StringBuilder();
-        for (PokerEngine.Card card : heroCards) {
-            if (hero.length() > 0) hero.append("   ");
-            hero.append(card == null ? "--" : cardLabel(card));
-        }
-
-        StringBuilder board = new StringBuilder();
-        for (PokerEngine.Card card : boardCards) {
-            if (card == null) continue;
-            if (board.length() > 0) board.append("   ");
-            board.append(cardLabel(card));
-        }
-
-        String details = cardResult == null
-                ? "Ожидание расчёта"
-                : cardResult.getText().toString();
-
-        String status = "Результаты ручного выбора карт";
-
-        if (heroCards[0] == null || heroCards[1] == null) {
-            status = "Выбери две свои карты";
-        } else if (details.startsWith("Ошибка")
-                || details.startsWith("Для борда")
-                || details.startsWith("Заполняй")) {
-            status = "Нужна проверка данных";
-        } else if (details.contains("Эквити против случайной руки")) {
-            status = "Эквити рассчитано против одной случайной руки";
-        }
-
-        getSharedPreferences("poker_hud", MODE_PRIVATE)
-                .edit()
-                .putString("hero", hero.toString())
-                .putString("board", board.length() == 0
-                        ? "Префлоп / карты не выбраны"
-                        : board.toString())
-                .putString("result", details)
-                .putString("status", status)
-                .apply();
-    }
 
     private void calculateCards() {
         try {
             if (heroCards[0] == null || heroCards[1] == null) {
                 cardResult.setText("Сначала выбери две свои карты.");
-                publishOverlayState();
-                return;
+return;
             }
 
             List<PokerEngine.Card> hero = new ArrayList<>();
@@ -565,12 +521,9 @@ public class MainActivity extends Activity {
                     equity.losses,
                     equity.simulations
             ));
-            publishOverlayState();
-
-        } catch (Exception e) {
+} catch (Exception e) {
             cardResult.setText("Ошибка расчёта: " + e.getMessage());
-            publishOverlayState();
-        }
+}
     }
 
     private void addDivider(LinearLayout root) {
@@ -969,18 +922,10 @@ public class MainActivity extends Activity {
                                 "Текст экрана: " + fullText
                         );
 
-                        android.content.SharedPreferences prefs =
-                                getSharedPreferences("poker_hud", MODE_PRIVATE);
-
                         String detected = fullText == null ? "" : fullText.trim();
                         String status = detected.isEmpty()
                                 ? "OCR: текст не найден"
                                 : "OCR: текст распознан";
-
-                        prefs.edit()
-                                .putString("ocr_text", detected)
-                                .putString("ocr_status", status)
-                                .apply();
 
                         runOnUiThread(() -> {
                             if (ocrResultView != null) {
