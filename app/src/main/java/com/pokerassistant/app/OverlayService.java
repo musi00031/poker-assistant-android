@@ -70,6 +70,20 @@ public class OverlayService extends Service {
         parent.addView(content);
     }
 
+    private SharedPreferences layoutPrefs() {
+        return getSharedPreferences("poker_overlay_layout", MODE_PRIVATE);
+    }
+
+    private void saveLayout() {
+        if (windowParams == null) return;
+        layoutPrefs().edit()
+                .putInt("x", windowParams.x)
+                .putInt("y", windowParams.y)
+                .putInt("width", windowParams.width)
+                .putInt("height", windowParams.height)
+                .apply();
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -142,9 +156,27 @@ public class OverlayService extends Service {
         addSection(panel, "МАТЕМАТИКА", resultText);
         panel.addView(statusText);
 
+        // Уголок для изменения размера плавающего окна.
+        LinearLayout resizeRow = new LinearLayout(this);
+        resizeRow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+
+        TextView resizeGrip = makeText("◢", 20,
+                Color.rgb(200, 200, 215));
+        resizeGrip.setGravity(Gravity.CENTER);
+        resizeGrip.setContentDescription("Изменить размер окна");
+
+        resizeRow.addView(resizeGrip,
+                new LinearLayout.LayoutParams(dp(36), dp(32)));
+        panel.addView(resizeRow,
+                new LinearLayout.LayoutParams(-1, dp(32)));
+
+
+        SharedPreferences savedLayout = layoutPrefs();
+
         windowParams = new WindowManager.LayoutParams(
-                dp(280),
-                WindowManager.LayoutParams.WRAP_CONTENT,
+                savedLayout.getInt("width", dp(280)),
+                savedLayout.getInt(
+                        "height", WindowManager.LayoutParams.WRAP_CONTENT),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -152,8 +184,8 @@ public class OverlayService extends Service {
         );
 
         windowParams.gravity = Gravity.TOP | Gravity.START;
-        windowParams.x = dp(12);
-        windowParams.y = dp(100);
+        windowParams.x = savedLayout.getInt("x", dp(12));
+        windowParams.y = savedLayout.getInt("y", dp(100));
 
         overlayView = panel;
 
@@ -199,10 +231,63 @@ public class OverlayService extends Service {
                         return true;
 
                     case MotionEvent.ACTION_UP:
+                        saveLayout();
                         return true;
 
                     default:
                         return false;
+                }
+            }
+        });
+
+        resizeGrip.setOnTouchListener(new View.OnTouchListener() {
+            private int startWidth;
+            private int startHeight;
+            private float touchX;
+            private float touchY;
+
+            @Override
+            public boolean onTouch(View view, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startWidth = overlayView.getWidth();
+                        startHeight = overlayView.getHeight();
+                        touchX = event.getRawX();
+                        touchY = event.getRawY();
+                        return true;
+
+                    case MotionEvent.ACTION_MOVE:
+                        int screenWidth = getResources()
+                                .getDisplayMetrics().widthPixels;
+                        int screenHeight = getResources()
+                                .getDisplayMetrics().heightPixels;
+
+                        int newWidth = startWidth
+                                + (int) (event.getRawX() - touchX);
+                        int newHeight = startHeight
+                                + (int) (event.getRawY() - touchY);
+
+                        windowParams.width = Math.max(dp(220),
+                                Math.min(newWidth, screenWidth - dp(16)));
+                        windowParams.height = Math.max(dp(160),
+                                Math.min(newHeight, screenHeight - dp(40)));
+
+                        try {
+                            if (overlayView != null) {
+                                windowManager.updateViewLayout(
+                                        overlayView, windowParams);
+                            }
+                        } catch (Exception ignored) {
+                        }
+                        return true;
+
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        saveLayout();
+                        return true;
+
+                    default:
+                        return true;
                 }
             }
         });
