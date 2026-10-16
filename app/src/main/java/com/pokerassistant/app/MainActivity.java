@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private final Button[] heroCardButtons = new Button[2];
     private final Button[] boardCardButtons = new Button[5];
     private TextView cardResult;
+    private boolean overlayPermissionPending = false;
 
 
     private int dp(float value) {
@@ -290,6 +291,12 @@ public class MainActivity extends Activity {
         Button capture = makeButton("ЗАХВАТИТЬ ЭКРАН");
         root.addView(capture, new LinearLayout.LayoutParams(-1, dp(54)));
 
+        Button overlay = makeButton("ЗАПУСТИТЬ ПЛАВАЮЩЕЕ ОКНО");
+        LinearLayout.LayoutParams overlayParams =
+                new LinearLayout.LayoutParams(-1, dp(54));
+        overlayParams.setMargins(0, dp(10), 0, dp(8));
+        root.addView(overlay, overlayParams);
+
         TextView privacy = new TextView(this);
         privacy.setText("Захват запускается только после твоего подтверждения.");
         privacy.setTextColor(MUTED);
@@ -299,6 +306,7 @@ public class MainActivity extends Activity {
 
         calculate.setOnClickListener(v -> calculate());
         capture.setOnClickListener(v -> requestScreenCapture());
+        overlay.setOnClickListener(v -> requestOverlayPermissionOrStart());
 
         setContentView(scroll);
         calculate();
@@ -306,6 +314,56 @@ public class MainActivity extends Activity {
 
 
     // CARD_PICKER_SECTION: ручной выбор карт
+
+    private void requestOverlayPermissionOrStart() {
+        if (android.provider.Settings.canDrawOverlays(this)) {
+            overlayPermissionPending = false;
+            startService(new Intent(this, OverlayService.class));
+            Toast.makeText(this, "Плавающее окно запущено", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        overlayPermissionPending = true;
+        Intent settingsIntent = new Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:" + getPackageName())
+        );
+
+        try {
+            startActivity(settingsIntent);
+        } catch (Exception e) {
+            overlayPermissionPending = false;
+            Toast.makeText(
+                    this,
+                    "Не удалось открыть настройки разрешения",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (overlayPermissionPending) {
+            overlayPermissionPending = false;
+
+            if (android.provider.Settings.canDrawOverlays(this)) {
+                startService(new Intent(this, OverlayService.class));
+                Toast.makeText(
+                        this,
+                        "Плавающее окно запущено",
+                        Toast.LENGTH_SHORT
+                ).show();
+            } else {
+                Toast.makeText(
+                        this,
+                        "Разрешение не предоставлено",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        }
+    }
 
     private String cardLabel(PokerEngine.Card card) {
         if (card == null) return "--";
