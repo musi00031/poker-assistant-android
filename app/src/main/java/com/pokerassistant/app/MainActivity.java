@@ -357,10 +357,6 @@ public class MainActivity extends Activity {
 
 
     // CARD_PICKER_SECTION: ручной выбор карт
-
-
-    @Override
-
     private String cardLabel(PokerEngine.Card card) {
         if (card == null) return "--";
 
