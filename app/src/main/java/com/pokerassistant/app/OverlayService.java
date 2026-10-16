@@ -313,9 +313,21 @@ public class OverlayService extends Service {
                 "Ставка: не распознана\nКолл: не распознан\n" +
                 "Шансы банка: —\nEV: —"
         ));
-        statusText.setText(prefs.getString(
+        String baseStatus = prefs.getString(
                 "status", "Ожидание данных"
-        ));
+        );
+        String ocrStatus = prefs.getString("ocr_status", "");
+        String ocrText = prefs.getString("ocr_text", "");
+
+        if (!ocrStatus.isEmpty()) {
+            baseStatus = baseStatus + "\n" + ocrStatus;
+        }
+
+        statusText.setText(baseStatus);
+
+        if (!ocrText.isEmpty()) {
+            android.util.Log.d("PokerAssistantOCR", "HUD OCR: " + ocrText);
+        }
     }
 
     @Override

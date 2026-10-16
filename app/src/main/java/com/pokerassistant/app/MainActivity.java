@@ -59,6 +59,8 @@ public class MainActivity extends Activity {
     private VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
     private Handler handler;
+    private CardRecognizer cardRecognizer;
+    private long lastOcrAtMs = 0;
     private int screenWidth;
     private int screenHeight;
     private int screenDensity;
@@ -85,6 +87,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         handler = new Handler(Looper.getMainLooper());
+        cardRecognizer = new CardRecognizer();
         projectionManager = (MediaProjectionManager)
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -897,9 +900,8 @@ public class MainActivity extends Activity {
                     screenHeight
             );
 
-            // Пока только проверяем непрерывность получения кадров.
-            // Следующим этапом передадим frame в распознаватель карт.
             capturedFrames++;
+            runOcrOnFrame(frame);
 
         } catch (Exception e) {
             android.util.Log.e(
@@ -924,6 +926,81 @@ public class MainActivity extends Activity {
                 handler.removeCallbacks(captureFrameTask);
                 handler.postDelayed(captureFrameTask, 300);
             }
+        }
+    }
+
+    private void runOcrOnFrame(Bitmap frame) {
+        if (!captureActive || cardRecognizer == null
+                || frame == null || frame.isRecycled()) {
+            return;
+        }
+
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastOcrAtMs < 1200 || cardRecognizer.isProcessing()) {
+            return;
+        }
+
+        lastOcrAtMs = now;
+        Bitmap ocrBitmap = null;
+
+        try {
+            ocrBitmap = frame.copy(Bitmap.Config.ARGB_8888, false);
+            if (ocrBitmap == null) {
+                return;
+            }
+
+            final Bitmap bitmapForOcr = ocrBitmap;
+
+            cardRecognizer.recognize(bitmapForOcr, new CardRecognizer.Callback() {
+                @Override
+                public void onSuccess(
+                        java.util.List<CardRecognizer.RecognizedText> items,
+                        String fullText) {
+                    try {
+                        android.util.Log.d(
+                                "PokerAssistantOCR",
+                                "Текст экрана: " + fullText
+                        );
+
+                        android.content.SharedPreferences prefs =
+                                getSharedPreferences("poker_hud", MODE_PRIVATE);
+
+                        String detected = fullText == null ? "" : fullText.trim();
+                        String status = detected.isEmpty()
+                                ? "OCR: текст не найден"
+                                : "OCR: текст распознан";
+
+                        prefs.edit()
+                                .putString("ocr_text", detected)
+                                .putString("ocr_status", status)
+                                .apply();
+                    } finally {
+                        if (!bitmapForOcr.isRecycled()) {
+                            bitmapForOcr.recycle();
+                        }
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception error) {
+                    try {
+                        android.util.Log.e(
+                                "PokerAssistantOCR",
+                                "Ошибка распознавания текста",
+                                error
+                        );
+                    } finally {
+                        if (!bitmapForOcr.isRecycled()) {
+                            bitmapForOcr.recycle();
+                        }
+                    }
+                }
+            });
+        } catch (Exception e) {
+            if (ocrBitmap != null && !ocrBitmap.isRecycled()) {
+                ocrBitmap.recycle();
+            }
+            android.util.Log.e("PokerAssistantOCR", "Не удалось запустить OCR", e);
         }
     }
 
@@ -1002,6 +1079,12 @@ public class MainActivity extends Activity {
         unregisterCaptureServiceReceiver();
         pendingCaptureData = null;
         releaseCaptureResources();
+
+        if (cardRecognizer != null) {
+            cardRecognizer.close();
+            cardRecognizer = null;
+        }
+
         super.onDestroy();
     }
 }
