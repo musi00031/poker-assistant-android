@@ -63,6 +63,9 @@ public class MainActivity extends Activity {
     private int screenHeight;
     private int screenDensity;
     private boolean frameCaptured = false;
+    private boolean captureActive = false;
+    private int capturedFrames = 0;
+    private final Runnable captureFrameTask = () -> readCapturedFrame();
 
     // CARD_PICKER_SECTION
     private final PokerEngine.Card[] heroCards = new PokerEngine.Card[2];
@@ -827,7 +830,10 @@ public class MainActivity extends Activity {
                     handler
             );
 
-            handler.postDelayed(this::readCapturedFrame, 900);
+            captureActive = true;
+            capturedFrames = 0;
+            handler.removeCallbacks(captureFrameTask);
+            handler.postDelayed(captureFrameTask, 500);
 
         } catch (Exception e) {
             releaseCaptureResources();
@@ -841,46 +847,83 @@ public class MainActivity extends Activity {
     }
 
     private void readCapturedFrame() {
-        if (imageReader == null || frameCaptured) return;
+        if (!captureActive || imageReader == null) {
+            return;
+        }
 
         Image image = null;
-        Bitmap bitmap = null;
+        Bitmap padded = null;
+        Bitmap frame = null;
 
         try {
             image = imageReader.acquireLatestImage();
+
             if (image == null) {
-                handler.postDelayed(this::readCapturedFrame, 400);
                 return;
             }
 
-            Image.Plane plane = image.getPlanes()[0];
+            Image.Plane[] planes = image.getPlanes();
+            if (planes == null || planes.length == 0) {
+                return;
+            }
+
+            Image.Plane plane = planes[0];
             ByteBuffer buffer = plane.getBuffer();
             int pixelStride = plane.getPixelStride();
             int rowStride = plane.getRowStride();
+
+            if (pixelStride <= 0 || rowStride <= 0 || screenWidth <= 0
+                    || screenHeight <= 0) {
+                return;
+            }
+
             int rowPadding = rowStride - pixelStride * screenWidth;
+            int paddedWidth = screenWidth + Math.max(0, rowPadding / pixelStride);
 
-            Bitmap padded = Bitmap.createBitmap(
-                    screenWidth + rowPadding / pixelStride,
+            padded = Bitmap.createBitmap(
+                    paddedWidth,
                     screenHeight,
-                    Bitmap.Config.ARGB_8888);
+                    Bitmap.Config.ARGB_8888
+            );
 
+            buffer.rewind();
             padded.copyPixelsFromBuffer(buffer);
-            bitmap = Bitmap.createBitmap(
-                    padded, 0, 0, screenWidth, screenHeight);
-            padded.recycle();
 
-            frameCaptured = true;
-            showCapturedImage(bitmap);
-            bitmap = null;
+            frame = Bitmap.createBitmap(
+                    padded,
+                    0,
+                    0,
+                    screenWidth,
+                    screenHeight
+            );
+
+            // Пока только проверяем непрерывность получения кадров.
+            // Следующим этапом передадим frame в распознаватель карт.
+            capturedFrames++;
 
         } catch (Exception e) {
-            Toast.makeText(this,
-                    "Не удалось прочитать кадр: " + e.getMessage(),
-                    Toast.LENGTH_LONG).show();
+            android.util.Log.e(
+                    "PokerAssistant",
+                    "Ошибка чтения кадра",
+                    e
+            );
         } finally {
-            if (bitmap != null) bitmap.recycle();
-            if (image != null) image.close();
-            releaseCaptureResources();
+            if (frame != null && !frame.isRecycled()) {
+                frame.recycle();
+            }
+
+            if (padded != null && !padded.isRecycled()) {
+                padded.recycle();
+            }
+
+            if (image != null) {
+                image.close();
+            }
+
+            if (captureActive && imageReader != null && handler != null) {
+                handler.removeCallbacks(captureFrameTask);
+                handler.postDelayed(captureFrameTask, 300);
+            }
         }
     }
 
@@ -926,6 +969,8 @@ public class MainActivity extends Activity {
     }
 
     private void releaseCaptureResources() {
+        captureActive = false;
+        if (handler != null) handler.removeCallbacks(captureFrameTask);
         if (virtualDisplay != null) {
             virtualDisplay.release();
             virtualDisplay = null;
