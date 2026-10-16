@@ -1,6 +1,7 @@
 package com.pokerassistant.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.media.projection.MediaProjection;
@@ -28,6 +29,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -54,6 +57,14 @@ public class MainActivity extends Activity {
     private int screenHeight;
     private int screenDensity;
     private boolean frameCaptured = false;
+
+    // CARD_PICKER_SECTION
+    private final PokerEngine.Card[] heroCards = new PokerEngine.Card[2];
+    private final PokerEngine.Card[] boardCards = new PokerEngine.Card[5];
+    private final Button[] heroCardButtons = new Button[2];
+    private final Button[] boardCardButtons = new Button[5];
+    private TextView cardResult;
+
 
     private int dp(float value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
@@ -154,6 +165,107 @@ public class MainActivity extends Activity {
 
         addDivider(root);
 
+
+        // CARD_PICKER_SECTION: выбор карманных и общих карт
+        addDivider(root);
+
+        TextView cardsTitle = new TextView(this);
+        cardsTitle.setText("КАРТЫ И ЭКВИТИ");
+        cardsTitle.setTextColor(SILVER);
+        cardsTitle.setTextSize(13);
+        cardsTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        root.addView(cardsTitle);
+
+        TextView cardsInfo = new TextView(this);
+        cardsInfo.setText(
+                "Выбери две свои карты, затем флоп, тёрн и ривер. " +
+                "Эквити рассчитывается против случайной руки соперника.");
+        cardsInfo.setTextColor(MUTED);
+        cardsInfo.setTextSize(12);
+        cardsInfo.setPadding(0, dp(8), 0, dp(12));
+        root.addView(cardsInfo);
+
+        TextView heroTitle = new TextView(this);
+        heroTitle.setText("ТВОИ КАРТЫ");
+        heroTitle.setTextColor(SILVER);
+        heroTitle.setTextSize(12);
+        root.addView(heroTitle);
+
+        LinearLayout heroRow = new LinearLayout(this);
+        heroRow.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(heroRow);
+
+        for (int i = 0; i < 2; i++) {
+            final int index = i;
+            Button b = makeButton("Выбрать");
+            heroCardButtons[i] = b;
+            LinearLayout.LayoutParams lp =
+                    new LinearLayout.LayoutParams(0, dp(48), 1f);
+            lp.setMargins(0, dp(6), dp(6), dp(12));
+            heroRow.addView(b, lp);
+            b.setOnClickListener(v -> showCardPicker(true, index));
+        }
+
+        TextView boardTitle = new TextView(this);
+        boardTitle.setText("ОБЩИЕ КАРТЫ");
+        boardTitle.setTextColor(SILVER);
+        boardTitle.setTextSize(12);
+        root.addView(boardTitle);
+
+        LinearLayout boardRow1 = new LinearLayout(this);
+        boardRow1.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(boardRow1);
+
+        for (int i = 0; i < 3; i++) {
+            final int index = i;
+            Button b = makeButton("--");
+            boardCardButtons[i] = b;
+            LinearLayout.LayoutParams lp =
+                    new LinearLayout.LayoutParams(0, dp(44), 1f);
+            lp.setMargins(0, dp(6), dp(4), dp(6));
+            boardRow1.addView(b, lp);
+            b.setOnClickListener(v -> showCardPicker(false, index));
+        }
+
+        LinearLayout boardRow2 = new LinearLayout(this);
+        boardRow2.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(boardRow2);
+
+        for (int i = 3; i < 5; i++) {
+            final int index = i;
+            Button b = makeButton("--");
+            boardCardButtons[i] = b;
+            LinearLayout.LayoutParams lp =
+                    new LinearLayout.LayoutParams(0, dp(44), 1f);
+            lp.setMargins(0, dp(4), dp(4), dp(8));
+            boardRow2.addView(b, lp);
+            b.setOnClickListener(v -> showCardPicker(false, index));
+        }
+
+        Button evaluateCards = makeButton("РАССЧИТАТЬ КОМБИНАЦИЮ И ЭКВИТИ");
+        LinearLayout.LayoutParams evaluateParams =
+                new LinearLayout.LayoutParams(-1, dp(54));
+        evaluateParams.setMargins(0, dp(12), 0, dp(12));
+        root.addView(evaluateCards, evaluateParams);
+
+        LinearLayout cardPanel = new LinearLayout(this);
+        cardPanel.setOrientation(LinearLayout.VERTICAL);
+        cardPanel.setPadding(dp(16), dp(16), dp(16), dp(16));
+        cardPanel.setBackgroundColor(PANEL);
+        root.addView(cardPanel);
+
+        cardResult = new TextView(this);
+        cardResult.setTextColor(WHITE);
+        cardResult.setTextSize(15);
+        cardResult.setLineSpacing(dp(5), 1f);
+        cardPanel.addView(cardResult);
+
+        evaluateCards.setOnClickListener(v -> calculateCards());
+        refreshCardButtons();
+        cardResult.setText(
+                "Выбери две карманные карты. " +
+                "Для расчёта на флопе укажи три общие карты.");
+
         TextView captureTitle = new TextView(this);
         captureTitle.setText("АНАЛИЗ ИЗОБРАЖЕНИЯ");
         captureTitle.setTextColor(SILVER);
@@ -184,6 +296,179 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
         calculate();
+    }
+
+
+    // CARD_PICKER_SECTION: ручной выбор карт
+
+    private String cardLabel(PokerEngine.Card card) {
+        if (card == null) return "--";
+
+        String rank = card.toString().substring(0, 1);
+        char suit = card.toString().charAt(1);
+
+        String symbol;
+        switch (suit) {
+            case 's': symbol = "\u2660"; break;
+            case 'h': symbol = "\u2665"; break;
+            case 'd': symbol = "\u2666"; break;
+            case 'c': symbol = "\u2663"; break;
+            default: symbol = String.valueOf(suit);
+        }
+
+        return rank + symbol;
+    }
+
+    private void refreshCardButtons() {
+        for (int i = 0; i < heroCardButtons.length; i++) {
+            if (heroCardButtons[i] != null) {
+                heroCardButtons[i].setText(
+                        heroCards[i] == null
+                                ? "Выбрать"
+                                : cardLabel(heroCards[i]));
+            }
+        }
+
+        for (int i = 0; i < boardCardButtons.length; i++) {
+            if (boardCardButtons[i] != null) {
+                boardCardButtons[i].setText(cardLabel(boardCards[i]));
+            }
+        }
+    }
+
+    private boolean cardAlreadyUsed(
+            String code, boolean isHero, int targetIndex) {
+
+        for (int i = 0; i < heroCards.length; i++) {
+            if (isHero && i == targetIndex) continue;
+
+            if (heroCards[i] != null &&
+                    heroCards[i].toString().equals(code)) {
+                return true;
+            }
+        }
+
+        for (int i = 0; i < boardCards.length; i++) {
+            if (!isHero && i == targetIndex) continue;
+
+            if (boardCards[i] != null &&
+                    boardCards[i].toString().equals(code)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void showCardPicker(boolean isHero, int index) {
+        List<String> options = new ArrayList<>();
+        options.add("Очистить карту");
+
+        String ranks = "23456789TJQKA";
+        String suits = "shdc";
+
+        for (int r = 0; r < ranks.length(); r++) {
+            for (int su = 0; su < suits.length(); su++) {
+                String code = "" + ranks.charAt(r) + suits.charAt(su);
+
+                if (!cardAlreadyUsed(code, isHero, index)) {
+                    options.add(code);
+                }
+            }
+        }
+
+        String[] labels = new String[options.size()];
+        labels[0] = options.get(0);
+
+        for (int i = 1; i < options.size(); i++) {
+            labels[i] = cardLabel(PokerEngine.Card.parse(options.get(i)));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Выбери карту")
+                .setItems(labels, (dialog, which) -> {
+                    PokerEngine.Card selected = which == 0
+                            ? null
+                            : PokerEngine.Card.parse(options.get(which));
+
+                    if (isHero) {
+                        heroCards[index] = selected;
+                    } else {
+                        boardCards[index] = selected;
+                    }
+
+                    refreshCardButtons();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    private void calculateCards() {
+        try {
+            if (heroCards[0] == null || heroCards[1] == null) {
+                cardResult.setText("Сначала выбери две свои карты.");
+                return;
+            }
+
+            List<PokerEngine.Card> hero = new ArrayList<>();
+            hero.add(heroCards[0]);
+            hero.add(heroCards[1]);
+
+            List<PokerEngine.Card> board = new ArrayList<>();
+            boolean foundEmpty = false;
+
+            for (PokerEngine.Card card : boardCards) {
+                if (card == null) {
+                    foundEmpty = true;
+                } else {
+                    if (foundEmpty) {
+                        cardResult.setText(
+                                "Заполняй общие карты по порядку: " +
+                                "сначала флоп, затем тёрн и ривер.");
+                        return;
+                    }
+                    board.add(card);
+                }
+            }
+
+            if (board.size() == 1 || board.size() == 2) {
+                cardResult.setText(
+                        "Для борда выбери либо 0 карт, либо 3, 4 или 5.");
+                return;
+            }
+
+            String handText;
+
+            if (board.isEmpty()) {
+                handText = "Комбинация: пока не определена (префлоп)";
+            } else {
+                List<PokerEngine.Card> all = new ArrayList<>(hero);
+                all.addAll(board);
+                handText = "Комбинация: " +
+                        PokerEngine.describeHand(all);
+            }
+
+            PokerEngine.Result equity =
+                    PokerEngine.calculateEquity(hero, board, 3000);
+
+            cardResult.setText(String.format(
+                    Locale.getDefault(),
+                    "%s\n\nЭквити против случайной руки: %.1f%%" +
+                    "\nПобеды: %d" +
+                    "\nНичьи: %d" +
+                    "\nПоражения: %d" +
+                    "\nСимуляций: %d",
+                    handText,
+                    equity.equity,
+                    equity.wins,
+                    equity.ties,
+                    equity.losses,
+                    equity.simulations
+            ));
+
+        } catch (Exception e) {
+            cardResult.setText("Ошибка расчёта: " + e.getMessage());
+        }
     }
 
     private void addDivider(LinearLayout root) {
