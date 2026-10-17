@@ -923,17 +923,67 @@ return;
                         );
 
                         String detected = fullText == null ? "" : fullText.trim();
+
+                        java.util.List<CardImageRecognizer.Result> imageResults =
+                                CardImageRecognizer.recognize(
+                                        bitmapForOcr,
+                                        items,
+                                        detected
+                                );
+
+                        java.util.List<PokerEngine.Card> cardCandidates =
+                                PlayingCardTextParser.parse(detected);
+
+                        StringBuilder imageSummary = new StringBuilder();
+                        for (CardImageRecognizer.Result result : imageResults) {
+                            if (imageSummary.length() > 0) {
+                                imageSummary.append("  ");
+                            }
+                            imageSummary.append(result.toString());
+
+            // Диагностический этап: цвет OCR-области.
+            // Цвет не считается подтверждением масти, поскольку OCR bounds
+            // могут включать фон, ранг и соседние символы.
+            if (result.bounds != null
+                    && !result.bounds.isEmpty()
+                    && bitmapForOcr != null
+                    && !bitmapForOcr.isRecycled()) {
+                String colorDiagnostic =
+                        CardImageRecognizer.detectSuitColor(
+                                bitmapForOcr,
+                                result.bounds
+                        );
+                imageSummary.append(" | цвет области=")
+                        .append(colorDiagnostic)
+                        .append(" (не подтверждено)");
+            }
+
+            if (result.bounds != null) {
+                imageSummary.append(" | координаты=")
+                        .append(result.bounds.flattenToString());
+            }
+                        }
+
+                        String candidateSummary =
+                                PlayingCardTextParser.format(cardCandidates);
+
+                        String displayText = detected.isEmpty()
+                                ? "Текст не найден. Попробуй открыть стол крупнее и с хорошей контрастностью."
+                                : detected
+                                    + "\n\nКандидаты OCR (не подтверждены): "
+                                    + candidateSummary
+                                    + "\n\nCardImageRecognizer: "
+                                    + (imageSummary.length() == 0
+                                        ? "карт не найдено"
+                                        : imageSummary.toString());
+
                         String status = detected.isEmpty()
                                 ? "OCR: текст не найден"
                                 : "OCR: текст распознан";
 
                         runOnUiThread(() -> {
                             if (ocrResultView != null) {
-                                ocrResultView.setText(
-                                        detected.isEmpty()
-                                                ? "Текст не найден. Попробуй открыть стол крупнее и с хорошей контрастностью."
-                                                : detected
-                                );
+                                ocrResultView.setText(displayText);
                             }
                             updateCaptureStatus(
                                     detected.isEmpty()
@@ -942,6 +992,49 @@ return;
                                     detected.isEmpty() ? SILVER : Color.rgb(90, 220, 130)
                             );
                         });
+
+                        // Отдельное последовательное OCR фиксированных карт игрока.
+                        // Изображения областей создаются до освобождения исходного кадра.
+                        FixedPlayerCardRecognizer.recognize(
+                                bitmapForOcr,
+                                fixedResults -> {
+                                    StringBuilder fixedSummary = new StringBuilder();
+
+                                    for (FixedPlayerCardRecognizer.CardTextResult item
+                                            : fixedResults) {
+                                        if (fixedSummary.length() > 0) {
+                                            fixedSummary.append("\n");
+                                        }
+                                        fixedSummary.append(item.toString());
+                                    }
+
+                                    String section =
+                                            "\n\nФИКСИРОВАННЫЕ КАРТЫ ИГРОКА:\n"
+                                            + (fixedSummary.length() == 0
+                                                ? "Области карт не получены"
+                                                : fixedSummary.toString());
+
+                                    runOnUiThread(() -> {
+                                        if (ocrResultView == null) {
+                                            return;
+                                        }
+
+                                        String current =
+                                                ocrResultView.getText().toString();
+
+                                        String heading =
+                                                "\n\nФИКСИРОВАННЫЕ КАРТЫ ИГРОКА:";
+
+                                        int oldSection = current.indexOf(heading);
+                                        if (oldSection >= 0) {
+                                            current = current.substring(0, oldSection);
+                                        }
+
+                                        ocrResultView.setText(current + section);
+                                    });
+                                }
+                        );
+
                     } finally {
                         if (!bitmapForOcr.isRecycled()) {
                             bitmapForOcr.recycle();
