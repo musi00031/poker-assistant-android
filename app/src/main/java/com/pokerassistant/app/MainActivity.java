@@ -79,6 +79,9 @@ public class MainActivity extends Activity {
     private final Button[] heroCardButtons = new Button[2];
     private final Button[] boardCardButtons = new Button[5];
     private TextView cardResult;
+    private TextView cardSourceStatus;
+    private boolean autoCardMode = true;
+
     private int dp(float value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -268,6 +271,34 @@ public class MainActivity extends Activity {
         cardPanel.setBackgroundColor(PANEL);
         root.addView(cardPanel);
 
+        cardSourceStatus = new TextView(this);
+        cardSourceStatus.setTextColor(SILVER);
+        cardSourceStatus.setTextSize(12);
+        cardSourceStatus.setPadding(0, 0, 0, dp(8));
+        cardSourceStatus.setText("Источник карт: автоматическое распознавание");
+        cardPanel.addView(cardSourceStatus);
+
+        Button autoCardToggle = makeButton("Автораспознавание: ВКЛ");
+        cardPanel.addView(
+                autoCardToggle,
+                new LinearLayout.LayoutParams(-1, dp(44))
+        );
+        autoCardToggle.setOnClickListener(v -> {
+            autoCardMode = !autoCardMode;
+            autoCardToggle.setText(
+                    autoCardMode
+                            ? "Автораспознавание: ВКЛ"
+                            : "Автораспознавание: ВЫКЛ"
+            );
+            if (cardSourceStatus != null) {
+                cardSourceStatus.setText(
+                        autoCardMode
+                                ? "Источник карт: автоматическое распознавание"
+                                : "Источник карт: ручной выбор"
+                );
+            }
+        });
+
         cardResult = new TextView(this);
         cardResult.setTextColor(WHITE);
         cardResult.setTextSize(15);
@@ -370,6 +401,82 @@ public class MainActivity extends Activity {
         }
 
         return rank + symbol;
+    }
+
+    private void applyRecognizedPlayerCards(
+            java.util.List<FixedPlayerCardRecognizer.CardTextResult> results) {
+
+        if (!autoCardMode || results == null) {
+            return;
+        }
+
+        PokerEngine.Card left = null;
+        PokerEngine.Card right = null;
+
+        for (FixedPlayerCardRecognizer.CardTextResult item : results) {
+            if (item == null || item.text == null || item.error != null) {
+                continue;
+            }
+
+            java.util.List<PokerEngine.Card> parsed =
+                    PlayingCardTextParser.parse(item.text);
+
+            if (parsed == null || parsed.size() != 1) {
+                continue;
+            }
+
+            if ("PLAYER_LEFT".equals(item.position)) {
+                left = parsed.get(0);
+            } else if ("PLAYER_RIGHT".equals(item.position)) {
+                right = parsed.get(0);
+            }
+        }
+
+        if (left == null || right == null
+                || left.toString().equals(right.toString())) {
+            runOnUiThread(() -> {
+                if (autoCardMode && cardSourceStatus != null) {
+                    cardSourceStatus.setText(
+                            "Автораспознавание: ожидаю две разные карты");
+                }
+            });
+            return;
+        }
+
+        final PokerEngine.Card detectedLeft = left;
+        final PokerEngine.Card detectedRight = right;
+
+        runOnUiThread(() -> {
+            if (!autoCardMode) {
+                return;
+            }
+
+            for (PokerEngine.Card board : boardCards) {
+                if (board != null
+                        && (board.toString().equals(detectedLeft.toString())
+                        || board.toString().equals(detectedRight.toString()))) {
+                    if (cardSourceStatus != null) {
+                        cardSourceStatus.setText(
+                                "Конфликт с общей картой — проверь распознавание");
+                    }
+                    return;
+                }
+            }
+
+            heroCards[0] = detectedLeft;
+            heroCards[1] = detectedRight;
+
+            refreshCardButtons();
+
+            if (cardSourceStatus != null) {
+                cardSourceStatus.setText(
+                        "Распознаны карты: "
+                        + cardLabel(detectedLeft) + " и "
+                        + cardLabel(detectedRight));
+            }
+
+            calculateCards();
+        });
     }
 
     private void refreshCardButtons() {
@@ -998,6 +1105,8 @@ return;
                         FixedPlayerCardRecognizer.recognize(
                                 bitmapForOcr,
                                 fixedResults -> {
+                                    applyRecognizedPlayerCards(fixedResults);
+
                                     StringBuilder fixedSummary = new StringBuilder();
 
                                     for (FixedPlayerCardRecognizer.CardTextResult item
