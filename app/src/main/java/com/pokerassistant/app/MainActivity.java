@@ -758,22 +758,25 @@ public class MainActivity extends Activity {
             }
 
             PokerEngine.Result equity =
-                    PokerEngine.calculateEquity(hero, board, 3000);
+                    PokerEngine.calculateEquity(hero, board, 12000);
+            LiveHandAnalyzer.Report liveReport =
+                    LiveHandAnalyzer.analyze(hero, board, equity.equity);
 
             String overlaySummary = String.format(
                     Locale.getDefault(),
-                    "%s\nЭквити: %.1f%%",
-                    handText, equity.equity);
+                    "%s\nЭквити: %.1f%%\n%s\n%s",
+                    liveReport.street, equity.equity,
+                    liveReport.hand, liveReport.advice);
             publishOverlayState(overlaySummary);
 
             cardResult.setText(String.format(
                     Locale.getDefault(),
-                    "%s\n\nЭквити против случайной руки: %.1f%%" +
-                    "\nПобеды: %d" +
-                    "\nНичьи: %d" +
-                    "\nПоражения: %d" +
-                    "\nСимуляций: %d",
-                    handText,
+                    "%s\n\n%s\n%s\n\nЭквити против случайной руки: %.1f%%" +
+                    "\nПобеды: %d · Ничьи: %d · Поражения: %d" +
+                    "\nРасчётов: %d\n\nВажно: это ориентир против случайной руки, не точный диапазон соперника.",
+                    liveReport.street,
+                    liveReport.hand,
+                    liveReport.draws,
                     equity.equity,
                     equity.wins,
                     equity.ties,
