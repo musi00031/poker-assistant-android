@@ -64,7 +64,12 @@ public final class FixedPlayerCardRecognizer {
             }
             List<PokerEngine.Card> cards = PlayingCardTextParser.parse(text);
             if (cards.size() == 1) {
-                return label + ": " + PlayingCardTextParser.format(cards);
+                PokerEngine.Card card = cards.get(0);
+                String ranks = "23456789TJQKA";
+                String rank = String.valueOf(ranks.charAt(card.rank - 2));
+                if ("T".equals(rank)) rank = "10";
+                String[] suits = {"♠", "♥", "♦", "♣"};
+                return label + ": " + rank + suits[card.suit];
             }
             if (text == null || text.trim().isEmpty()) {
                 return label + ": не найдена — проверь, что карта находится в своей области";
