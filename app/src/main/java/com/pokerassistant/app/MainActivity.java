@@ -83,6 +83,10 @@ public class MainActivity extends Activity {
     private TextView cardSourceStatus;
     private boolean autoCardMode = true;
     private boolean fixedCardOcrInProgress = false;
+    private volatile boolean boardCardOcrInProgress = false;
+    private String pendingBoardKey = null;
+    private int pendingBoardCount = 0;
+    private static final int REQUIRED_BOARD_CONFIRMATIONS = 2;
 
     // Подтверждение пары карт по последовательным результатам OCR.
     private String pendingCardPair = null;
@@ -592,6 +596,14 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            boolean heroPairChanged = heroCards[0] == null || heroCards[1] == null
+                    || !heroCards[0].equals(detectedLeft)
+                    || !heroCards[1].equals(detectedRight);
+            if (heroPairChanged) {
+                for (int i = 0; i < boardCards.length; i++) boardCards[i] = null;
+                pendingBoardKey = null;
+                pendingBoardCount = 0;
+            }
             heroCards[0] = detectedLeft;
             heroCards[1] = detectedRight;
             publishOverlayState("Карты: " + cardLabel(detectedLeft) + " " + cardLabel(detectedRight));
@@ -608,6 +620,94 @@ public class MainActivity extends Activity {
 
             calculateCards();
         });
+    }
+
+    private void applyRecognizedBoardCards(
+            List<PokerEngine.Card> detected, String diagnostic) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(() -> applyRecognizedBoardCards(detected, diagnostic));
+            return;
+        }
+        if (!autoCardMode) return;
+        if (detected == null || detected.size() < 3 || detected.size() > 5) {
+            android.util.Log.d("PokerBoardModel", diagnostic == null
+                    ? "Общие карты не подтверждены" : diagnostic);
+            if (ocrResultView != null && diagnostic != null) {
+                String current = ocrResultView.getText().toString();
+                int start = current.indexOf("\\n\\nОБЩИЕ КАРТЫ");
+                if (start >= 0) current = current.substring(0, start);
+                ocrResultView.setText(current + "\\n\\nОБЩИЕ КАРТЫ\\n" + diagnostic);
+            }
+            pendingBoardKey = null;
+            pendingBoardCount = 0;
+            return;
+        }
+
+        for (PokerEngine.Card card : detected) {
+            if (card == null || (heroCards[0] != null && heroCards[0].equals(card))
+                    || (heroCards[1] != null && heroCards[1].equals(card))) {
+                pendingBoardKey = null;
+                pendingBoardCount = 0;
+                return;
+            }
+        }
+        for (int i = 0; i < detected.size(); i++) {
+            for (int j = i + 1; j < detected.size(); j++) {
+                if (detected.get(i).equals(detected.get(j))) {
+                    pendingBoardKey = null;
+                    pendingBoardCount = 0;
+                    return;
+                }
+            }
+        }
+
+        StringBuilder keyBuilder = new StringBuilder();
+        for (PokerEngine.Card card : detected) keyBuilder.append(card.toString()).append('|');
+        String key = keyBuilder.toString();
+        if (key.equals(pendingBoardKey)) pendingBoardCount++;
+        else {
+            pendingBoardKey = key;
+            pendingBoardCount = 1;
+        }
+        if (pendingBoardCount < REQUIRED_BOARD_CONFIRMATIONS) {
+            if (cardSourceStatus != null) {
+                cardSourceStatus.setText("Проверяю общие карты: " + pendingBoardCount
+                        + "/" + REQUIRED_BOARD_CONFIRMATIONS);
+            }
+            return;
+        }
+
+        int existingCount = 0;
+        for (PokerEngine.Card card : boardCards) if (card != null) existingCount++;
+        if (detected.size() < existingCount) {
+            // Never downgrade a turn/river to a partial flop when the detector misses a card.
+            return;
+        }
+
+        boolean changed = detected.size() != existingCount;
+        for (int i = 0; i < detected.size(); i++) {
+            if (boardCards[i] == null || !boardCards[i].equals(detected.get(i))) changed = true;
+        }
+        if (!changed) return;
+
+        for (int i = 0; i < boardCards.length; i++) {
+            boardCards[i] = i < detected.size() ? detected.get(i) : null;
+        }
+        refreshCardButtons();
+        if (cardSourceStatus != null) {
+            StringBuilder status = new StringBuilder("Распознаны общие карты: ");
+            for (PokerEngine.Card card : detected) status.append(cardLabel(card)).append(' ');
+            cardSourceStatus.setText(status.toString().trim());
+        }
+        if (ocrResultView != null) {
+            String current = ocrResultView.getText().toString();
+            int start = current.indexOf("\\n\\nОБЩИЕ КАРТЫ");
+            if (start >= 0) current = current.substring(0, start);
+            StringBuilder section = new StringBuilder("\\n\\nОБЩИЕ КАРТЫ\\n");
+            for (PokerEngine.Card card : detected) section.append(cardLabel(card)).append(' ');
+            ocrResultView.setText(current + section.toString().trim());
+        }
+        calculateCards();
     }
 
     private void refreshCardButtons() {
@@ -1266,6 +1366,24 @@ public class MainActivity extends Activity {
                                     detected.isEmpty() ? SILVER : Color.rgb(90, 220, 130)
                             );
                         });
+
+                        // Общие карты ищутся отдельной моделью в центральной области стола.
+                        // ROI копируется синхронно до освобождения исходного кадра.
+                        if (!boardCardOcrInProgress) {
+                            boardCardOcrInProgress = true;
+                            try {
+                                BoardCardRecognizer.recognize(
+                                        MainActivity.this, bitmapForOcr,
+                                        (board, diagnostic) -> {
+                                            boardCardOcrInProgress = false;
+                                            applyRecognizedBoardCards(board, diagnostic);
+                                        });
+                            } catch (Exception error) {
+                                boardCardOcrInProgress = false;
+                                android.util.Log.e("PokerBoardModel",
+                                        "Не удалось запустить распознавание общих карт", error);
+                            }
+                        }
 
                         // Отдельное последовательное OCR фиксированных карт игрока.
                         // Изображения областей создаются до освобождения исходного кадра.
