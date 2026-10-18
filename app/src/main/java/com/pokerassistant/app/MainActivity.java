@@ -37,7 +37,8 @@ public class MainActivity extends Activity {
 
     private final int BG = Color.rgb(8, 9, 12);
     private final int PANEL = Color.rgb(21, 22, 27);
-    private final int SILVER = Color.rgb(205, 211, 224);\n    private final int ACCENT = Color.rgb(196, 42, 57);
+    private final int SILVER = Color.rgb(205, 211, 224);
+    private final int ACCENT = Color.rgb(196, 42, 57);
     private final int MUTED = Color.rgb(145, 145, 155);
     private final int WHITE = Color.WHITE;
     private static final int SCREEN_CAPTURE_REQUEST = 7001;
