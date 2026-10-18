@@ -35,9 +35,9 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
 
-    private final int BG = Color.rgb(12, 12, 14);
-    private final int PANEL = Color.rgb(27, 27, 31);
-    private final int SILVER = Color.rgb(205, 205, 215);
+    private final int BG = Color.rgb(8, 9, 12);
+    private final int PANEL = Color.rgb(21, 22, 27);
+    private final int SILVER = Color.rgb(205, 211, 224);\n    private final int ACCENT = Color.rgb(196, 42, 57);
     private final int MUTED = Color.rgb(145, 145, 155);
     private final int WHITE = Color.WHITE;
     private static final int SCREEN_CAPTURE_REQUEST = 7001;
@@ -123,7 +123,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView brand = new TextView(this);
-        brand.setText("POKER ASSISTANT");
+        brand.setText("POKER ASSISTANT  /  PRO");
         brand.setTextColor(SILVER);
         brand.setTextSize(12);
         brand.setLetterSpacing(0.18f);
@@ -139,7 +139,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Расчёт банка и математической выгодности колла");
+        subtitle.setText("CLUBGG · CARD RECOGNITION · EQUITY ENGINE");
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(14);
         root.addView(subtitle);
@@ -167,7 +167,7 @@ public class MainActivity extends Activity {
         LinearLayout resultPanel = new LinearLayout(this);
         resultPanel.setOrientation(LinearLayout.VERTICAL);
         resultPanel.setPadding(dp(17), dp(17), dp(17), dp(17));
-        resultPanel.setBackgroundColor(PANEL);
+        resultPanel.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 18));
         root.addView(resultPanel);
 
         TextView resultHeading = new TextView(this);
@@ -280,7 +280,7 @@ public class MainActivity extends Activity {
         LinearLayout cardPanel = new LinearLayout(this);
         cardPanel.setOrientation(LinearLayout.VERTICAL);
         cardPanel.setPadding(dp(16), dp(16), dp(16), dp(16));
-        cardPanel.setBackgroundColor(PANEL);
+        cardPanel.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 18));
         root.addView(cardPanel);
 
         cardSourceStatus = new TextView(this);
@@ -341,7 +341,7 @@ public class MainActivity extends Activity {
         root.addView(captureInfo);
 
         captureStatusView = new TextView(this);
-        captureStatusView.setText("● Демонстрация экрана не активна");
+        captureStatusView.setText("●  ЗАХВАТ ЭКРАНА НЕ АКТИВЕН");
         captureStatusView.setTextColor(MUTED);
         captureStatusView.setTextSize(14);
         captureStatusView.setPadding(0, dp(12), 0, dp(8));
@@ -354,7 +354,7 @@ public class MainActivity extends Activity {
         root.addView(captureFramesView);
 
         TextView ocrTitle = new TextView(this);
-        ocrTitle.setText("РАСПОЗНАННЫЙ ТЕКСТ");
+        ocrTitle.setText("ДИАГНОСТИКА РАСПОЗНАВАНИЯ");
         ocrTitle.setTextColor(SILVER);
         ocrTitle.setTextSize(12);
         ocrTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -366,7 +366,7 @@ public class MainActivity extends Activity {
         ocrResultView.setTextColor(WHITE);
         ocrResultView.setTextSize(14);
         ocrResultView.setPadding(dp(12), dp(12), dp(12), dp(12));
-        ocrResultView.setBackgroundColor(PANEL);
+        ocrResultView.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 14));
         root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, -2));
 
         Button overlayButton = makeButton("ПОКАЗАТЬ ПАНЕЛЬ ПОВЕРХ ИГРЫ");
@@ -795,15 +795,32 @@ public class MainActivity extends Activity {
         root.addView(divider, params);
     }
 
+    private android.graphics.drawable.GradientDrawable roundedPanel(
+            int fill, int stroke, int radiusDp) {
+        android.graphics.drawable.GradientDrawable drawable =
+                new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), stroke);
+        return drawable;
+    }
+
     private Button makeButton(String text) {
         Button button = new Button(this);
         button.setText(text);
-        button.setTextColor(Color.BLACK);
-        button.setTextSize(14);
+        button.setTextColor(SILVER);
+        button.setTextSize(13);
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setAllCaps(false);
-        button.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(SILVER));
+        button.setLetterSpacing(0.025f);
+        button.setPadding(dp(12), dp(8), dp(12), dp(8));
+        button.setBackground(roundedPanel(
+                Color.rgb(31, 32, 39), Color.rgb(82, 84, 96), 13));
+        if (text.toUpperCase(Locale.ROOT).contains("РАССЧИТАТЬ")
+                || text.toUpperCase(Locale.ROOT).contains("ПОКАЗАТЬ ПАНЕЛЬ")) {
+            button.setTextColor(Color.WHITE);
+            button.setBackground(roundedPanel(ACCENT, Color.rgb(235, 85, 96), 13));
+        }
         return button;
     }
 
