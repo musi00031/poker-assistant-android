@@ -634,9 +634,9 @@ public class MainActivity extends Activity {
                     ? "Общие карты не подтверждены" : diagnostic);
             if (ocrResultView != null && diagnostic != null) {
                 String current = ocrResultView.getText().toString();
-                int start = current.indexOf("\\n\\nОБЩИЕ КАРТЫ");
+                int start = current.indexOf("\n\nОБЩИЕ КАРТЫ");
                 if (start >= 0) current = current.substring(0, start);
-                ocrResultView.setText(current + "\\n\\nОБЩИЕ КАРТЫ\\n" + diagnostic);
+                ocrResultView.setText(current + "\n\nОБЩИЕ КАРТЫ\n" + diagnostic);
             }
             pendingBoardKey = null;
             pendingBoardCount = 0;
@@ -701,9 +701,9 @@ public class MainActivity extends Activity {
         }
         if (ocrResultView != null) {
             String current = ocrResultView.getText().toString();
-            int start = current.indexOf("\\n\\nОБЩИЕ КАРТЫ");
+            int start = current.indexOf("\n\nОБЩИЕ КАРТЫ");
             if (start >= 0) current = current.substring(0, start);
-            StringBuilder section = new StringBuilder("\\n\\nОБЩИЕ КАРТЫ\\n");
+            StringBuilder section = new StringBuilder("\n\nОБЩИЕ КАРТЫ\n");
             for (PokerEngine.Card card : detected) section.append(cardLabel(card)).append(' ');
             ocrResultView.setText(current + section.toString().trim());
         }
