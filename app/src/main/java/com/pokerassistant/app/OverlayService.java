@@ -28,6 +28,7 @@ public final class OverlayService extends Service {
     private View overlay;
     private TextView stateView;
     private WindowManager.LayoutParams params;
+    private boolean expanded = false;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -129,8 +130,14 @@ public final class OverlayService extends Service {
                     float dx = Math.abs(event.getRawX() - downX);
                     float dy = Math.abs(event.getRawY() - downY);
                     if (dx < dp(8) && dy < dp(8)) {
-                        removeOverlay();
-                        stopSelf();
+                        expanded = !expanded;
+                        params.width = expanded
+                                ? WindowManager.LayoutParams.MATCH_PARENT : dp(230);
+                        heading.setText(expanded
+                                ? "POKER ASSISTANT  ·  ПОЛНАЯ ПАНЕЛЬ  ×"
+                                : "POKER ASSISTANT  ·  КОМПАКТНО  ×");
+                        try { windowManager.updateViewLayout(panel, params); }
+                        catch (Exception ignored) {}
                     }
                     return true;
                 }
