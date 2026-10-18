@@ -105,9 +105,14 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
 
-        screenWidth = getResources().getDisplayMetrics().widthPixels;
-        screenHeight = getResources().getDisplayMetrics().heightPixels;
-        screenDensity = getResources().getDisplayMetrics().densityDpi;
+        // Захват должен использовать полный физический размер дисплея,
+        // а не размеры окна приложения (на Android 15/16 они могут отличаться).
+        android.util.DisplayMetrics captureMetrics =
+                new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(captureMetrics);
+        screenWidth = captureMetrics.widthPixels;
+        screenHeight = captureMetrics.heightPixels;
+        screenDensity = captureMetrics.densityDpi;
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
