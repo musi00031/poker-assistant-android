@@ -90,60 +90,106 @@ public final class LiveHandAnalyzer {
         List<PokerEngine.Card> all = new ArrayList<>(hero);
         all.addAll(board);
         int[] suits = new int[4];
-        int[] ranks = new int[15];
-        for (PokerEngine.Card c : all) {
-            suits[c.suit]++;
-            ranks[c.rank]++;
+        int[] rankCounts = new int[15];
+        Set<Integer> ranks = new HashSet<>();
+        for (PokerEngine.Card card : all) {
+            suits[card.suit]++;
+            rankCounts[card.rank]++;
+            ranks.add(card.rank);
         }
 
         StringBuilder text = new StringBuilder();
-        if (board.size() >= 3) {
-            int maxSuit = 0;
-            for (PokerEngine.Card c : board) maxSuit = Math.max(maxSuit, suits[c.suit]);
-            if (maxSuit >= 5) text.append("Флеш уже собран");
-            else if (maxSuit == 4) text.append("Флеш-дро: нужна карта той же масти");
-            else if (maxSuit == 3) text.append("Есть потенциал флеша");
-            else text.append("Флеш-дро не видно");
+        int maxSuit = 0;
+        for (int count : suits) maxSuit = Math.max(maxSuit, count);
+
+        if (maxSuit >= 5) {
+            text.append("Флеш уже собран");
+        } else if (board.size() < 5 && maxSuit == 4) {
+            int outs = 9;
+            double chance = chanceToHit(outs, all.size(), 5 - board.size());
+            text.append("Флеш-дро: 9 карт одной масти, около ")
+                    .append(Math.round(chance)).append("% до ривера");
+        } else if (board.size() == 3 && maxSuit == 3) {
+            text.append("Бэкдорное флеш-дро: нужны две карты одной масти");
+        } else if (board.size() < 5) {
+            text.append("Флеш-дро не видно");
         }
 
-        int unique = 0;
-        for (int r = 2; r <= 14; r++) if (ranks[r] > 0) unique++;
-        boolean openEnded = false, gutshot = false;
-        for (int start = 1; start <= 10; start++) {
-            int present = 0;
-            for (int r = start; r < start + 5; r++) {
-                int rank = (r == 1) ? 14 : r;
-                if (ranks[rank] > 0) present++;
+        boolean straightMade = hasStraight(ranks);
+        if (straightMade) {
+            append(text, "стрит уже собран");
+        } else if (board.size() < 5) {
+            Set<Integer> completionRanks = new HashSet<>();
+            for (int rank = 2; rank <= 14; rank++) {
+                if (ranks.contains(rank)) continue;
+                Set<Integer> trial = new HashSet<>(ranks);
+                trial.add(rank);
+                if (hasStraight(trial)) completionRanks.add(rank);
             }
-            if (present == 4) {
-                boolean lowMissing = ranks[start == 1 ? 14 : start] == 0;
-                boolean highMissing = ranks[start + 4 == 14 ? 14 : start + 4] == 0;
-                if (lowMissing || highMissing) {
-                    // A234 is a wheel draw, not a true two-ended draw.
-                    boolean wheelEdge = start == 1;
-                    if (wheelEdge) gutshot = true;
-                    else openEnded = true;
+            if (!completionRanks.isEmpty()) {
+                int outs = Math.min(47, completionRanks.size() * 4);
+                double chance = chanceToHit(outs, all.size(), 5 - board.size());
+                if (completionRanks.size() == 1) {
+                    append(text, "гатшот: 4 ранговые карты могут закрыть стрит");
+                } else if (completionRanks.size() == 2) {
+                    append(text, "стрит-дро с двумя вариантами закрытия: 8 ранговых карт");
                 } else {
-                    gutshot = true;
+                    append(text, "стрит-дро: " + outs + " карт по рангам могут закрыть стрит");
                 }
+                append(text, "примерный шанс закрыть стрит до ривера: "
+                        + Math.round(chance) + "%");
             }
         }
-        if (openEnded) text.append(" · стрит-дро с двумя концами");
-        else if (gutshot) text.append(" · гатшот на стрит");
-        else if (unique >= 4) text.append(" · возможны стрит-комбинации");
 
         int pairs = 0, trips = 0, quads = 0;
-        for (int count : ranks) {
+        for (int count : rankCounts) {
             if (count == 2) pairs++;
             else if (count == 3) trips++;
             else if (count >= 4) quads++;
         }
-        if (quads > 0) text.append(" · каре по известным картам");
-        else if (trips > 0 && pairs > 0) text.append(" · фулл-хаус возможен/собран");
-        else if (trips > 0) text.append(" · есть тройка по известным картам");
-        else if (pairs >= 2) text.append(" · две пары по известным картам");
-        else if (pairs == 1) text.append(" · пара по известным картам");
-        return text.toString();
+        if (quads > 0) append(text, "каре по известным картам");
+        else if (trips > 0 && pairs > 0) append(text, "фулл-хаус по известным картам");
+        else if (trips > 0) append(text, "тройка по известным картам");
+        else if (pairs >= 2) append(text, "две пары по известным картам");
+        else if (pairs == 1) append(text, "пара по известным картам");
+
+        return text.length() == 0 ? "Дро не обнаружены" : text.toString();
+    }
+
+    private static void append(StringBuilder text, String phrase) {
+        if (text.length() > 0) text.append(" · ");
+        text.append(phrase);
+    }
+
+    private static boolean hasStraight(Set<Integer> ranks) {
+        // Ace is both the highest rank and the low card in A-2-3-4-5.
+        for (int high = 5; high <= 14; high++) {
+            boolean complete = true;
+            for (int rank = high - 4; rank <= high; rank++) {
+                int actual = rank == 1 ? 14 : rank;
+                if (!ranks.contains(actual)) {
+                    complete = false;
+                    break;
+                }
+            }
+            if (complete) return true;
+        }
+        return false;
+    }
+
+    private static double chanceToHit(int outs, int knownCards, int futureCards) {
+        int unseen = 52 - knownCards;
+        if (outs <= 0 || unseen <= 0 || futureCards <= 0) return 0.0;
+        outs = Math.min(outs, unseen);
+        double miss = 1.0;
+        int draws = Math.min(futureCards, unseen);
+        for (int i = 0; i < draws; i++) {
+            int remainingCards = unseen - i;
+            int remainingMisses = remainingCards - outs;
+            if (remainingMisses <= 0) return 100.0;
+            miss *= remainingMisses / (double) remainingCards;
+        }
+        return (1.0 - miss) * 100.0;
     }
 
     private static String adviceFor(String street, double equity, List<PokerEngine.Card> board) {
