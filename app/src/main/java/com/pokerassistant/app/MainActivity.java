@@ -705,8 +705,10 @@ public class MainActivity extends Activity {
     private void calculateCards() {
         try {
             if (heroCards[0] == null || heroCards[1] == null) {
-                cardResult.setText("Сначала выбери две свои карты.");
-return;
+                String message = "Сначала выбери две свои карты.";
+                cardResult.setText(message);
+                publishOverlayState(message);
+                return;
             }
 
             List<PokerEngine.Card> hero = new ArrayList<>();
@@ -721,9 +723,10 @@ return;
                     foundEmpty = true;
                 } else {
                     if (foundEmpty) {
-                        cardResult.setText(
-                                "Заполняй общие карты по порядку: " +
-                                "сначала флоп, затем тёрн и ривер.");
+                        String message = "Заполняй общие карты по порядку: "
+                                + "сначала флоп, затем тёрн и ривер.";
+                        cardResult.setText(message);
+                        publishOverlayState(message);
                         return;
                     }
                     board.add(card);
@@ -731,8 +734,9 @@ return;
             }
 
             if (board.size() == 1 || board.size() == 2) {
-                cardResult.setText(
-                        "Для борда выбери либо 0 карт, либо 3, 4 или 5.");
+                String message = "Для борда выбери либо 0 карт, либо 3, 4 или 5.";
+                cardResult.setText(message);
+                publishOverlayState(message);
                 return;
             }
 
@@ -771,7 +775,9 @@ return;
                     equity.simulations
             ));
 } catch (Exception e) {
-            cardResult.setText("Ошибка расчёта: " + e.getMessage());
+            String message = "Ошибка расчёта: " + e.getMessage();
+            cardResult.setText(message);
+            publishOverlayState(message);
 }
     }
 
