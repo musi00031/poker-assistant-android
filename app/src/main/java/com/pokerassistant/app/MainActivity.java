@@ -758,7 +758,7 @@ public class MainActivity extends Activity {
             }
 
             PokerEngine.Result equity =
-                    PokerEngine.calculateEquity(hero, board, 12000);
+                    PokerEngine.calculateEquity(hero, board, 3000);
             LiveHandAnalyzer.Report liveReport =
                     LiveHandAnalyzer.analyze(hero, board, equity.equity);
 
