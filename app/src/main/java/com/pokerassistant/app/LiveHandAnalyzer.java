@@ -118,8 +118,14 @@ public final class LiveHandAnalyzer {
             if (present == 4) {
                 boolean lowMissing = ranks[start == 1 ? 14 : start] == 0;
                 boolean highMissing = ranks[start + 4 == 14 ? 14 : start + 4] == 0;
-                if (!lowMissing && !highMissing) openEnded = true;
-                else gutshot = true;
+                if (lowMissing || highMissing) {
+                    // A234 is a wheel draw, not a true two-ended draw.
+                    boolean wheelEdge = start == 1;
+                    if (wheelEdge) gutshot = true;
+                    else openEnded = true;
+                } else {
+                    gutshot = true;
+                }
             }
         }
         if (openEnded) text.append(" · стрит-дро с двумя концами");
