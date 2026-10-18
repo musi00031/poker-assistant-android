@@ -231,7 +231,8 @@ public class MainActivity extends Activity {
                     new LinearLayout.LayoutParams(0, dp(44), 1f);
             lp.setMargins(0, dp(4), dp(4), dp(8));
             boardRow2.addView(b, lp);
-            b.setOnClickListener(v -> showCardPicker(false, index));
+            b.setClickable(false);
+            b.setFocusable(false);
         }
 
         TextView automaticMath = new TextView(this);
@@ -262,7 +263,6 @@ public class MainActivity extends Activity {
         cardResult.setLineSpacing(dp(5), 1f);
         cardPanel.addView(cardResult);
 
-        evaluateCards.setOnClickListener(v -> calculateCards());
         refreshCardButtons();
         cardResult.setText(
                 "Ожидание автоматического распознавания карманных и общих карт.\nПодсказка: для стабильного результата не закрывай карты оверлеем и дождись подтверждения.");
@@ -338,7 +338,6 @@ public class MainActivity extends Activity {
 
 
         setContentView(scroll);
-        calculate();
     }
 
 
