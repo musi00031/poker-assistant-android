@@ -132,7 +132,7 @@ public class MainActivity extends Activity {
         root.addView(brand);
 
         TextView title = new TextView(this);
-        title.setText("Покерный\nкалькулятор");
+        title.setText("Покерный\nассистент");
         title.setTextColor(WHITE);
         title.setTextSize(30);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
