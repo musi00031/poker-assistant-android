@@ -58,12 +58,18 @@ public final class FixedPlayerCardRecognizer {
 
         @Override
         public String toString() {
-            return position
-                    + " | область=" + bounds.flattenToString()
-                    + " | текст="
-                    + (error != null
-                        ? "ОШИБКА: " + error
-                        : (text.isEmpty() ? "<не распознан>" : text));
+            String label = "PLAYER_LEFT".equals(position) ? "Левая карта" : "Правая карта";
+            if (error != null) {
+                return label + ": не удалось прочитать изображение";
+            }
+            List<PokerEngine.Card> cards = PlayingCardTextParser.parse(text);
+            if (cards.size() == 1) {
+                return label + ": " + PlayingCardTextParser.format(cards);
+            }
+            if (text == null || text.trim().isEmpty()) {
+                return label + ": не найдена — проверь, что карта находится в своей области";
+            }
+            return label + ": не удалось уверенно определить карту";
         }
     }
 
