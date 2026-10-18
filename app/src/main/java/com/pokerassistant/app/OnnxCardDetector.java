@@ -122,6 +122,8 @@ final class OnnxCardDetector {
         modelImage.recycle();
 
         int plane = pixels.length;
+        long redSum = 0, greenSum = 0, blueSum = 0;
+        for (int p : pixels) { redSum += (p >> 16) & 255; greenSum += (p >> 8) & 255; blueSum += p & 255; }
         FloatBuffer tensorData = FloatBuffer.allocate(3 * plane);
         for (int i = 0; i < plane; i++) {
             int p = pixels[i];
@@ -157,11 +159,18 @@ final class OnnxCardDetector {
             }
 
             int count = channelsFirst ? matrix[0].length : matrix.length;
-            float maxClassScore = 0f;
+            float maxClassScore = -Float.MAX_VALUE;
+            float minClassScore = Float.MAX_VALUE;
+            float maxCoord = -Float.MAX_VALUE;
+            float minCoord = Float.MAX_VALUE;
             for (int i = 0; i < count; i++) {
                 for (int c = 0; c < LABELS.length; c++) {
                     float score = value(matrix, channelsFirst, c + 4, i);
-                    if (finite(score) && score > maxClassScore) maxClassScore = score;
+                    if (finite(score)) { if (score > maxClassScore) maxClassScore = score; if (score < minClassScore) minClassScore = score; }
+                }
+                for (int c = 0; c < 4; c++) {
+                    float coord = value(matrix, channelsFirst, c, i);
+                    if (finite(coord)) { if (coord > maxCoord) maxCoord = coord; if (coord < minCoord) minCoord = coord; }
                 }
             }
             int validBoxes = 0;
@@ -219,7 +228,9 @@ final class OnnxCardDetector {
             }
             lastDiagnostic = "ONNX: кадр " + source.getWidth() + "x" + source.getHeight()
                     + "; выход " + matrix.length + "x" + matrix[0].length
-                    + "; max-score=" + String.format(java.util.Locale.US, "%.3f", maxClassScore)
+                    + "; score-range=" + String.format(java.util.Locale.US, "%.6f..%.6f", minClassScore, maxClassScore)
+                    + "; coords-range=" + String.format(java.util.Locale.US, "%.2f..%.2f", minCoord, maxCoord)
+                    + "; RGBavg=" + String.format(java.util.Locale.US, "%.0f/%.0f/%.0f", redSum/(double)plane, greenSum/(double)plane, blueSum/(double)plane)
                     + "; bbox=" + validBoxes + "; кандидаты=" + candidates.size()
                     + "; после NMS=" + kept.size()
                     + (candidates.isEmpty() ? "" : "; лучший=" + candidates.get(0).code
