@@ -85,6 +85,8 @@ public class MainActivity extends Activity {
     private TextView cardSourceStatus;
     private boolean autoCardMode = true;
     private boolean fixedCardOcrInProgress = false;
+    private String latestPlayerDiagnostic = "ТВОИ КАРТЫ\nОжидание распознавания";
+    private String latestBoardDiagnostic = "ОБЩИЕ КАРТЫ\nОжидание распознавания";
     private volatile boolean boardCardOcrInProgress = false;
     private String pendingBoardKey = null;
     private int pendingBoardCount = 0;
@@ -95,6 +97,15 @@ public class MainActivity extends Activity {
     private int pendingCardPairCount = 0;
     private static final int REQUIRED_CARD_CONFIRMATIONS = 3;
 
+
+    private void refreshDiagnosticsText() {
+        if (ocrResultView == null) return;
+        String model = OnnxCardDetector.getDiagnostic();
+        if (model == null || model.trim().isEmpty()) model = "Модель ещё не дала результат";
+        if (model.length() > 190) model = "…" + model.substring(model.length() - 190);
+        ocrResultView.setText(latestPlayerDiagnostic + "\n\n"
+                + latestBoardDiagnostic + "\n\nONNX: " + model);
+    }
 
     private int dp(float value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
@@ -573,12 +584,10 @@ public class MainActivity extends Activity {
         if (detected == null || detected.size() < 3 || detected.size() > 5) {
             android.util.Log.d("PokerBoardModel", diagnostic == null
                     ? "Общие карты не подтверждены" : diagnostic);
-            if (ocrResultView != null && diagnostic != null) {
-                String current = ocrResultView.getText().toString();
-                int start = current.indexOf("\n\nОБЩИЕ КАРТЫ");
-                if (start >= 0) current = current.substring(0, start);
-                ocrResultView.setText(current + "\n\nОБЩИЕ КАРТЫ\n" + diagnostic);
-            }
+            latestBoardDiagnostic = "ОБЩИЕ КАРТЫ\n"
+                    + (diagnostic == null ? "Не удалось подтвердить 3–5 карт" : diagnostic);
+            refreshDiagnosticsText();
+            if (cardSourceStatus != null) cardSourceStatus.setText("Борд: карты не подтверждены");
             pendingBoardKey = null;
             pendingBoardCount = 0;
             return;
@@ -640,14 +649,10 @@ public class MainActivity extends Activity {
             for (PokerEngine.Card card : detected) status.append(cardLabel(card)).append(' ');
             cardSourceStatus.setText(status.toString().trim());
         }
-        if (ocrResultView != null) {
-            String current = ocrResultView.getText().toString();
-            int start = current.indexOf("\n\nОБЩИЕ КАРТЫ");
-            if (start >= 0) current = current.substring(0, start);
-            StringBuilder section = new StringBuilder("\n\nОБЩИЕ КАРТЫ\n");
-            for (PokerEngine.Card card : detected) section.append(cardLabel(card)).append(' ');
-            ocrResultView.setText(current + section.toString().trim());
-        }
+        StringBuilder boardSummary = new StringBuilder("ОБЩИЕ КАРТЫ\n");
+        for (PokerEngine.Card card : detected) boardSummary.append(cardLabel(card)).append(' ');
+        latestBoardDiagnostic = boardSummary.toString().trim();
+        refreshDiagnosticsText();
         calculateCards();
     }
 
@@ -1321,9 +1326,6 @@ public class MainActivity extends Activity {
                                 : "Экран получен, проверяю карты";
 
                         runOnUiThread(() -> {
-                            if (ocrResultView != null) {
-                                ocrResultView.setText(displayText);
-                            }
                             updateCaptureStatus(
                                     detected.isEmpty()
                                             ? "● Захват активен · текст не найден"
@@ -1372,31 +1374,21 @@ public class MainActivity extends Activity {
                                         fixedSummary.append(item.toString());
                                     }
 
-                                    String section =
-                                            "\n\nТВОИ КАРТЫ\n"
-                                            + (fixedSummary.length() == 0
-                                                ? "Не удалось получить изображение карт. Перезапусти захват экрана."
-                                                : fixedSummary.toString())
-                                            + "\n\nДИАГНОСТИКА ONNX\n"
-                                            + OnnxCardDetector.getDiagnostic();
-
+                                    StringBuilder playerSummary = new StringBuilder("ТВОИ КАРТЫ\n");
+                                    if (fixedSummary.length() == 0) {
+                                        playerSummary.append("Не удалось получить изображение карт");
+                                    } else {
+                                        playerSummary.append(fixedSummary);
+                                    }
+                                    for (FixedPlayerCardRecognizer.CardTextResult item : fixedResults) {
+                                        playerSummary.append("\nROI ")
+                                                .append(item.position).append(": ")
+                                                .append(item.bounds.flattenToString());
+                                    }
+                                    String playerText = playerSummary.toString();
                                     runOnUiThread(() -> {
-                                        if (ocrResultView == null) {
-                                            return;
-                                        }
-
-                                        String current =
-                                                ocrResultView.getText().toString();
-
-                                        String heading =
-                                                "\n\nТВОИ КАРТЫ";
-
-                                        int oldSection = current.indexOf(heading);
-                                        if (oldSection >= 0) {
-                                            current = current.substring(0, oldSection);
-                                        }
-
-                                        ocrResultView.setText(current + section);
+                                        latestPlayerDiagnostic = playerText;
+                                        refreshDiagnosticsText();
                                     });
                                     }
                                 );
