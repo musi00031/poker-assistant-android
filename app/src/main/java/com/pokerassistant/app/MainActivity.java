@@ -230,7 +230,8 @@ public class MainActivity extends Activity {
                     new LinearLayout.LayoutParams(0, dp(44), 1f);
             lp.setMargins(0, dp(4), dp(4), dp(8));
             boardRow2.addView(b, lp);
-            b.setOnClickListener(v -> showCardPicker(false, index));
+            b.setClickable(false);
+            b.setFocusable(false);
         }
 
         LinearLayout cardPanel = new LinearLayout(this);
