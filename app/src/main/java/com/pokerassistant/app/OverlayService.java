@@ -99,7 +99,9 @@ public final class OverlayService extends Service {
 
         TextView heading = new TextView(this);
         heading.setText("POKER ASSISTANT PRO  ·  LIVE");
-        heading.setTextColor(Color.rgb(225, 228, 236));\n        heading.setLetterSpacing(0.035f);\n        heading.setPadding(0, 0, 0, dp(3));
+        heading.setTextColor(Color.rgb(225, 228, 236));
+        heading.setLetterSpacing(0.035f);
+        heading.setPadding(0, 0, 0, dp(3));
         heading.setTextSize(12);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         panel.addView(heading);
@@ -147,8 +149,8 @@ public final class OverlayService extends Service {
                         params.width = expanded
                                 ? WindowManager.LayoutParams.MATCH_PARENT : dp(230);
                         heading.setText(expanded
-                                ? "POKER ASSISTANT  ·  ПОЛНАЯ ПАНЕЛЬ"
-                                : "POKER ASSISTANT  ·  КОМПАКТНО");
+                                ? "POKER ASSISTANT PRO  ·  ПОЛНАЯ ПАНЕЛЬ"
+                                : "POKER ASSISTANT PRO  ·  LIVE");
                         try { windowManager.updateViewLayout(panel, params); }
                         catch (Exception ignored) {}
                     }
