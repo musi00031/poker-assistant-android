@@ -109,18 +109,29 @@ final class BoardCardRecognizer {
 
     private static void recognizeByOcrAndColor(
             Bitmap crop, Callback callback, String modelDiagnostic) {
-        final TextRecognizer recognizer;
+        final float ocrScale = 1.5f;
+        Bitmap scaledImage = null;
+        TextRecognizer createdRecognizer = null;
         try {
-            recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-            recognizer.process(InputImage.fromBitmap(crop, 0))
+            scaledImage = Bitmap.createScaledBitmap(
+                    crop,
+                    Math.max(1, Math.round(crop.getWidth() * ocrScale)),
+                    Math.max(1, Math.round(crop.getHeight() * ocrScale)),
+                    true);
+            final Bitmap ocrImage = scaledImage;
+            createdRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+            final TextRecognizer recognizer = createdRecognizer;
+            recognizer.process(InputImage.fromBitmap(ocrImage, 0))
                     .addOnSuccessListener(text -> {
                         try {
-                            List<CardCandidate> candidates = extractOcrCandidates(crop, text);
+                            List<CardCandidate> candidates =
+                                    extractOcrCandidates(crop, text, ocrScale);
                             List<PokerEngine.Card> row = chooseOcrRow(candidates, crop.getHeight());
                             if (row.size() >= MIN_BOARD_CARDS
                                     && row.size() <= MAX_BOARD_CARDS
                                     && !hasDuplicates(row)) {
-                                callback.onComplete(row, "OCR+цвет: " + format(row)
+                                callback.onComplete(row, "OCR+цвет (увеличение "
+                                        + ocrScale + "×): " + format(row)
                                         + " · " + modelDiagnostic);
                             } else {
                                 callback.onComplete(Collections.emptyList(),
@@ -135,12 +146,14 @@ final class BoardCardRecognizer {
                                             + "; " + modelDiagnostic);
                         } finally {
                             recognizer.close();
+                            if (ocrImage != crop) recycle(ocrImage);
                             recycle(crop);
                         }
                     })
                     .addOnFailureListener(error -> {
                         Log.w(TAG, "ML Kit не прочитал область общих карт", error);
                         recognizer.close();
+                        if (ocrImage != crop) recycle(ocrImage);
                         recycle(crop);
                         callback.onComplete(Collections.emptyList(),
                                 "OCR/цвет не сработал: " + error.getClass().getSimpleName()
@@ -148,6 +161,8 @@ final class BoardCardRecognizer {
                     });
         } catch (Exception e) {
             Log.e(TAG, "Не удалось запустить ML Kit для общих карт", e);
+            if (scaledImage != null && scaledImage != crop) recycle(scaledImage);
+            if (createdRecognizer != null) createdRecognizer.close();
             recycle(crop);
             callback.onComplete(Collections.emptyList(),
                     "Не удалось запустить OCR: " + e.getClass().getSimpleName()
@@ -155,17 +170,25 @@ final class BoardCardRecognizer {
         }
     }
 
-    private static List<CardCandidate> extractOcrCandidates(Bitmap crop, Text text) {
+    private static List<CardCandidate> extractOcrCandidates(
+            Bitmap crop, Text text, float scale) {
         List<CardCandidate> candidates = new ArrayList<>();
         if (text == null || text.getTextBlocks() == null) return candidates;
 
         List<CardRecognizer.RecognizedText> allItems = new ArrayList<>();
         StringBuilder fullText = new StringBuilder();
         for (Text.TextBlock block : text.getTextBlocks()) {
-            Rect bounds = block.getBoundingBox();
-            if (bounds == null || block.getText() == null) continue;
+            Rect ocrBounds = block.getBoundingBox();
+            if (ocrBounds == null || block.getText() == null) continue;
+            // OCR runs against an enlarged bitmap; map text boxes back to the original crop
+            // before colour sampling and row geometry checks.
+            Rect bounds = new Rect(
+                    Math.round(ocrBounds.left / scale),
+                    Math.round(ocrBounds.top / scale),
+                    Math.round(ocrBounds.right / scale),
+                    Math.round(ocrBounds.bottom / scale));
             allItems.add(new CardRecognizer.RecognizedText(
-                    block.getText(), new Rect(bounds)));
+                    block.getText(), bounds));
             if (fullText.length() > 0) fullText.append('\n');
             fullText.append(block.getText());
         }
