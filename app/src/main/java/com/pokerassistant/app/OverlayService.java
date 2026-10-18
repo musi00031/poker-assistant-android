@@ -109,7 +109,8 @@ public final class OverlayService extends Service {
         stateView = new TextView(this);
         stateView.setText(latestState);
         stateView.setTextColor(Color.WHITE);
-        stateView.setTextSize(14);\n        stateView.setLineSpacing(dp(3), 1.04f);
+        stateView.setTextSize(14);
+        stateView.setLineSpacing(dp(3), 1.04f);
         stateView.setPadding(0, dp(8), 0, 0);
         panel.addView(stateView);
 
