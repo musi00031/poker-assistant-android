@@ -1259,6 +1259,7 @@ public class MainActivity extends Activity {
                             fixedCardOcrInProgress = true;
                             try {
                                 FixedPlayerCardRecognizer.recognize(
+                                    MainActivity.this,
                                     bitmapForOcr,
                                     fixedResults -> {
                                         fixedCardOcrInProgress = false;
