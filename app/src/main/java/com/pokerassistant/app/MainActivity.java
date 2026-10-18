@@ -50,6 +50,8 @@ public class MainActivity extends Activity {
     private TextView result;
     private TextView captureStatusView;
     private TextView captureFramesView;
+    private ImageView capturePreviewView;
+    private long lastPreviewAtMs = 0;
     private TextView ocrResultView;
     private Button captureButton;
 
@@ -357,6 +359,21 @@ public class MainActivity extends Activity {
         captureFramesView.setTextColor(MUTED);
         captureFramesView.setTextSize(12);
         root.addView(captureFramesView);
+
+        TextView previewTitle = new TextView(this);
+        previewTitle.setText("ПОСЛЕДНИЙ КАДР ЗАХВАТА");
+        previewTitle.setTextColor(SILVER);
+        previewTitle.setTextSize(12);
+        previewTitle.setPadding(0, dp(12), 0, dp(6));
+        root.addView(previewTitle);
+
+        capturePreviewView = new ImageView(this);
+        capturePreviewView.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 12));
+        capturePreviewView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        capturePreviewView.setAdjustViewBounds(true);
+        capturePreviewView.setMaxHeight(dp(440));
+        capturePreviewView.setMinimumHeight(dp(160));
+        root.addView(capturePreviewView, new LinearLayout.LayoutParams(-1, dp(440)));
 
         TextView ocrTitle = new TextView(this);
         ocrTitle.setText("ДИАГНОСТИКА РАСПОЗНАВАНИЯ");
@@ -1240,8 +1257,10 @@ public class MainActivity extends Activity {
 
             capturedFrames++;
             if (captureFramesView != null && capturedFrames % 3 == 0) {
-                captureFramesView.setText("Обработано кадров: " + capturedFrames);
+                captureFramesView.setText("Обработано кадров: " + capturedFrames
+                        + " · кадр " + screenWidth + "×" + screenHeight);
             }
+            updateCapturePreview(frame);
             runOcrOnFrame(frame);
 
         } catch (Exception e) {
@@ -1267,6 +1286,28 @@ public class MainActivity extends Activity {
                 handler.removeCallbacks(captureFrameTask);
                 handler.postDelayed(captureFrameTask, 300);
             }
+        }
+    }
+
+    private void updateCapturePreview(Bitmap frame) {
+        if (capturePreviewView == null || frame == null || frame.isRecycled()) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastPreviewAtMs < 2500) return;
+        lastPreviewAtMs = now;
+        try {
+            int maxWidth = Math.min(480, Math.max(240, frame.getWidth()));
+            float scale = maxWidth / (float) frame.getWidth();
+            int targetWidth = Math.max(1, Math.round(frame.getWidth() * scale));
+            int targetHeight = Math.max(1, Math.round(frame.getHeight() * scale));
+            Bitmap preview = Bitmap.createScaledBitmap(frame, targetWidth, targetHeight, true);
+            runOnUiThread(() -> {
+                if (capturePreviewView != null) capturePreviewView.setImageBitmap(preview);
+            });
+            android.util.Log.i("PokerCapturePreview", "Кадр захвата: "
+                    + frame.getWidth() + "x" + frame.getHeight()
+                    + ", preview=" + targetWidth + "x" + targetHeight);
+        } catch (Exception error) {
+            android.util.Log.e("PokerCapturePreview", "Не удалось показать кадр захвата", error);
         }
     }
 
