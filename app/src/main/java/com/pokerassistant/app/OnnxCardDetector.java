@@ -16,25 +16,38 @@ import ai.onnxruntime.TensorInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
-/**
- * Finds a complete playing-card object inside one fixed player-card crop.
- * The model is a YOLO object detector, not a generic OCR engine: class scores
- * are accepted only when the same prediction contains a plausible card box.
- */
+/** YOLO detector for all 52 playing cards. */
 final class OnnxCardDetector {
     private static final String TAG = "PokerCardModel";
     private static final int PAD = 114;
     private static final float MIN_CONFIDENCE = 0.30f;
+    private static final float NMS_IOU = 0.45f;
+    private static final int MAX_DETECTIONS = 12;
 
-    // 52 classes: clubs, diamonds, hearts, spades; ranks A, 2..10, J, Q, K.
+    // Class order matches xay6/playing-card-detector/data.yaml.
     private static final String[] LABELS = {
         "Ac","2c","3c","4c","5c","6c","7c","8c","9c","Tc","Jc","Qc","Kc",
         "Ad","2d","3d","4d","5d","6d","7d","8d","9d","Td","Jd","Qd","Kd",
         "Ah","2h","3h","4h","5h","6h","7h","8h","9h","Th","Jh","Qh","Kh",
         "As","2s","3s","4s","5s","6s","7s","8s","9s","Ts","Js","Qs","Ks"
     };
+
+    static final class Detection {
+        final String code;
+        final RectF bounds;
+        final float confidence;
+
+        Detection(String code, RectF bounds, float confidence) {
+            this.code = code;
+            this.bounds = new RectF(bounds);
+            this.confidence = confidence;
+        }
+    }
 
     private static volatile OnnxCardDetector instance;
     private final OrtEnvironment environment;
@@ -61,7 +74,7 @@ final class OnnxCardDetector {
         }
         inputHeight = (int) shape[2];
         inputWidth = (int) shape[3];
-        Log.i(TAG, "Модель карт загружена");
+        Log.i(TAG, "Модель карт загружена: " + inputWidth + "x" + inputHeight);
     }
 
     private static byte[] readAll(InputStream in) throws Exception {
@@ -72,10 +85,17 @@ final class OnnxCardDetector {
         return out.toByteArray();
     }
 
-    /** Returns a code such as Th or 6s only when a card-shaped detection exists. */
+    /** Single-card convenience method used by the fixed player-card crops. */
     synchronized String detect(Bitmap source) {
-        if (source == null || source.isRecycled() || source.getWidth() < 2 || source.getHeight() < 2) {
-            return null;
+        List<Detection> detections = detectAll(source);
+        return detections.isEmpty() ? null : detections.get(0).code;
+    }
+
+    /** Detects multiple cards and returns source-image coordinates, strongest first. */
+    synchronized List<Detection> detectAll(Bitmap source) {
+        if (source == null || source.isRecycled()
+                || source.getWidth() < 2 || source.getHeight() < 2) {
+            return Collections.emptyList();
         }
 
         Bitmap modelImage = Bitmap.createBitmap(inputWidth, inputHeight, Bitmap.Config.ARGB_8888);
@@ -110,47 +130,43 @@ final class OnnxCardDetector {
              OrtSession.Result result = session.run(Collections.singletonMap(inputName, tensor))) {
             if (result.size() == 0 || !(result.get(0).getValue() instanceof float[][][])) {
                 Log.w(TAG, "Модель вернула неподдерживаемый результат");
-                return null;
+                return Collections.emptyList();
             }
 
             float[][][] output = (float[][][]) result.get(0).getValue();
-            if (output.length == 0 || output[0].length == 0) return null;
+            if (output.length == 0 || output[0].length == 0) return Collections.emptyList();
             float[][] matrix = output[0];
 
             final int channels = LABELS.length + 4;
             final boolean channelsFirst;
             if (matrix.length == channels) {
-                channelsFirst = true;   // [1, 56, detections]
+                channelsFirst = true;
             } else if (matrix[0].length == channels) {
-                channelsFirst = false;  // [1, detections, 56]
+                channelsFirst = false;
             } else {
-                Log.w(TAG, "Модель карт вернула неожиданный формат");
-                return null;
+                Log.w(TAG, "Неожиданный формат выхода модели: "
+                        + matrix.length + "x" + matrix[0].length);
+                return Collections.emptyList();
             }
 
-            int detections = channelsFirst ? matrix[0].length : matrix.length;
-            float bestScore = 0f;
-            int bestClass = -1;
-
-            for (int i = 0; i < detections; i++) {
+            int count = channelsFirst ? matrix[0].length : matrix.length;
+            List<Detection> candidates = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
                 float cx = value(matrix, channelsFirst, 0, i);
                 float cy = value(matrix, channelsFirst, 1, i);
-                float w  = value(matrix, channelsFirst, 2, i);
-                float h  = value(matrix, channelsFirst, 3, i);
-
-                // Ignore empty/noisy boxes. The crop is meant to contain one whole card.
+                float w = value(matrix, channelsFirst, 2, i);
+                float h = value(matrix, channelsFirst, 3, i);
                 if (!finite(cx) || !finite(cy) || !finite(w) || !finite(h)
-                        || w < inputWidth * 0.08f || h < inputHeight * 0.12f
+                        || w < inputWidth * 0.035f || h < inputHeight * 0.07f
                         || w > inputWidth * 1.10f || h > inputHeight * 1.10f) {
                     continue;
                 }
-                float x1 = cx - w / 2f, x2 = cx + w / 2f;
-                float y1 = cy - h / 2f, y2 = cy + h / 2f;
-                if (x2 <= 0 || y2 <= 0 || x1 >= inputWidth || y1 >= inputHeight) continue;
+                if (cx < left || cx > left + scaledW || cy < top || cy > top + scaledH) {
+                    continue;
+                }
 
-                // Card center should lie inside the visible crop, not in letterbox padding.
-                if (cx < left || cx > left + scaledW || cy < top || cy > top + scaledH) continue;
-
+                int bestClass = -1;
+                float bestScore = 0f;
                 for (int c = 0; c < LABELS.length; c++) {
                     float score = value(matrix, channelsFirst, c + 4, i);
                     if (finite(score) && score > bestScore) {
@@ -158,24 +174,61 @@ final class OnnxCardDetector {
                         bestClass = c;
                     }
                 }
+                if (bestClass < 0 || bestScore < MIN_CONFIDENCE) continue;
+
+                float x1 = clamp((cx - w / 2f - left) / scale, 0f, source.getWidth());
+                float y1 = clamp((cy - h / 2f - top) / scale, 0f, source.getHeight());
+                float x2 = clamp((cx + w / 2f - left) / scale, 0f, source.getWidth());
+                float y2 = clamp((cy + h / 2f - top) / scale, 0f, source.getHeight());
+                if (x2 <= x1 || y2 <= y1) continue;
+
+                candidates.add(new Detection(LABELS[bestClass],
+                        new RectF(x1, y1, x2, y2), bestScore));
             }
 
-            if (bestClass >= 0) {
-                Log.d(TAG, "Карта-кандидат " + LABELS[bestClass]
-                        + ", уверенность " + Math.round(bestScore * 100) + "%");
+            candidates.sort((a, b) -> Float.compare(b.confidence, a.confidence));
+            List<Detection> kept = new ArrayList<>();
+            for (Detection candidate : candidates) {
+                boolean overlaps = false;
+                for (Detection accepted : kept) {
+                    if (iou(candidate.bounds, accepted.bounds) > NMS_IOU) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (!overlaps) {
+                    kept.add(candidate);
+                    if (kept.size() >= MAX_DETECTIONS) break;
+                }
             }
-            return bestClass >= 0 && bestScore >= MIN_CONFIDENCE ? LABELS[bestClass] : null;
+            Log.d(TAG, "Распознано объектов-кандидатов: " + kept.size());
+            return kept;
         } catch (Exception e) {
-            Log.e(TAG, "Не удалось распознать карту", e);
-            return null;
+            Log.e(TAG, "Не удалось распознать карты", e);
+            return Collections.emptyList();
         }
     }
 
-    private static float value(float[][] matrix, boolean channelsFirst, int channel, int detection) {
+    private static float value(float[][] matrix, boolean channelsFirst,
+                               int channel, int detection) {
         return channelsFirst ? matrix[channel][detection] : matrix[detection][channel];
     }
 
     private static boolean finite(float value) {
         return !Float.isNaN(value) && !Float.isInfinite(value);
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static float iou(RectF a, RectF b) {
+        float left = Math.max(a.left, b.left);
+        float top = Math.max(a.top, b.top);
+        float right = Math.min(a.right, b.right);
+        float bottom = Math.min(a.bottom, b.bottom);
+        float intersection = Math.max(0f, right - left) * Math.max(0f, bottom - top);
+        float union = a.width() * a.height() + b.width() * b.height() - intersection;
+        return union <= 0f ? 0f : intersection / union;
     }
 }
