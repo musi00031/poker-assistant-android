@@ -60,6 +60,8 @@ final class OnnxCardDetector {
     private final String inputName;
     private final int inputWidth;
     private final int inputHeight;
+    // Fallback preprocessing modes are attempted only when the standard RGB/255 path finds no cards.
+    private int preprocessingMode = 0;
 
     static synchronized OnnxCardDetector get(Context context) throws Exception {
         if (instance == null) instance = new OnnxCardDetector(context.getApplicationContext());
@@ -127,9 +129,16 @@ final class OnnxCardDetector {
         FloatBuffer tensorData = FloatBuffer.allocate(3 * plane);
         for (int i = 0; i < plane; i++) {
             int p = pixels[i];
-            tensorData.put(i, ((p >> 16) & 255) / 255f);
-            tensorData.put(plane + i, ((p >> 8) & 255) / 255f);
-            tensorData.put(2 * plane + i, (p & 255) / 255f);
+            int r = (p >> 16) & 255;
+            int g = (p >> 8) & 255;
+            int b = p & 255;
+            if (preprocessingMode == 1 || preprocessingMode == 3) {
+                int swap = r; r = b; b = swap;
+            }
+            float divisor = preprocessingMode >= 2 ? 1f : 255f;
+            tensorData.put(i, r / divisor);
+            tensorData.put(plane + i, g / divisor);
+            tensorData.put(2 * plane + i, b / divisor);
         }
         tensorData.rewind();
 
@@ -189,6 +198,10 @@ final class OnnxCardDetector {
                     continue;
                 }
 
+                float aspect = w / h;
+                // Playing cards are taller than they are wide; reject implausible background boxes.
+                if (aspect < 0.35f || aspect > 1.50f) continue;
+
                 validBoxes++;
                 int bestClass = -1;
                 float bestScore = 0f;
@@ -199,7 +212,8 @@ final class OnnxCardDetector {
                         bestClass = c;
                     }
                 }
-                if (bestClass < 0 || bestScore < MIN_CONFIDENCE) continue;
+                float requiredConfidence = preprocessingMode == 0 ? MIN_CONFIDENCE : 0.25f;
+                if (bestClass < 0 || bestScore < requiredConfidence) continue;
 
                 float x1 = clamp((cx - w / 2f - left) / scale, 0f, source.getWidth());
                 float y1 = clamp((cy - h / 2f - top) / scale, 0f, source.getHeight());
@@ -235,7 +249,29 @@ final class OnnxCardDetector {
                     + "; после NMS=" + kept.size()
                     + (candidates.isEmpty() ? "" : "; лучший=" + candidates.get(0).code
                     + " (" + String.format(java.util.Locale.US, "%.3f", candidates.get(0).confidence) + ")");
+            String[] preprocessingNames = {"RGB/255", "BGR/255", "RGB/0-255", "BGR/0-255"};
+            lastDiagnostic += "; preprocessing=" + preprocessingNames[preprocessingMode];
             Log.d(TAG, lastDiagnostic);
+
+            if (kept.isEmpty() && preprocessingMode < 3) {
+                int previousMode = preprocessingMode;
+                String previousDiagnostic = lastDiagnostic;
+                preprocessingMode = previousMode + 1;
+                List<Detection> retry = detectAll(source);
+                String retryDiagnostic = lastDiagnostic;
+                preprocessingMode = previousMode;
+
+                if (!retry.isEmpty()) {
+                    lastDiagnostic = "Найдено альтернативной обработкой (" 
+                            + preprocessingNames[previousMode + 1] + "): " + retry.size()
+                            + " карт; " + retryDiagnostic;
+                    Log.i(TAG, lastDiagnostic);
+                    return retry;
+                }
+                lastDiagnostic = "Карты не найдены ни одним режимом обработки. "
+                        + previousDiagnostic + " | fallback: " + retryDiagnostic;
+                Log.w(TAG, lastDiagnostic);
+            }
             return kept;
         } catch (Exception e) {
             lastDiagnostic = "ОШИБКА ONNX: " + e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
