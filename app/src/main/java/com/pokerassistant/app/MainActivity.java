@@ -364,6 +364,35 @@ public class MainActivity extends Activity {
         ocrResultView.setBackgroundColor(PANEL);
         root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, -2));
 
+        Button overlayButton = makeButton("ПОКАЗАТЬ ПАНЕЛЬ ПОВЕРХ ИГРЫ");
+        LinearLayout.LayoutParams overlayParams =
+                new LinearLayout.LayoutParams(-1, dp(50));
+        overlayParams.setMargins(0, dp(10), 0, dp(4));
+        root.addView(overlayButton, overlayParams);
+        overlayButton.setOnClickListener(v -> {
+            if (android.os.Build.VERSION.SDK_INT >= 23
+                    && !android.provider.Settings.canDrawOverlays(this)) {
+                Intent permissionIntent = new Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName())
+                );
+                startActivity(permissionIntent);
+                Toast.makeText(
+                        this,
+                        "Разреши отображение поверх других приложений, затем нажми кнопку ещё раз",
+                        Toast.LENGTH_LONG
+                ).show();
+                return;
+            }
+            Intent overlayIntent = new Intent(this, OverlayService.class);
+            overlayIntent.setAction(OverlayService.ACTION_TOGGLE);
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(overlayIntent);
+            } else {
+                startService(overlayIntent);
+            }
+        });
+
         captureButton = makeButton("НАЧАТЬ ДЕМОНСТРАЦИЮ ЭКРАНА");
         root.addView(captureButton, new LinearLayout.LayoutParams(-1, dp(54)));
 
@@ -661,6 +690,17 @@ public class MainActivity extends Activity {
 
 
 
+    private void publishOverlayState(String state) {
+        Intent intent = new Intent(this, OverlayService.class);
+        intent.setAction(OverlayService.ACTION_UPDATE);
+        intent.putExtra(OverlayService.EXTRA_STATE, state);
+        try {
+            startService(intent);
+        } catch (Exception error) {
+            android.util.Log.w("PokerOverlay", "Не удалось обновить панель", error);
+        }
+    }
+
     private void calculateCards() {
         try {
             if (heroCards[0] == null || heroCards[1] == null) {
@@ -709,7 +749,7 @@ return;
             PokerEngine.Result equity =
                     PokerEngine.calculateEquity(hero, board, 3000);
 
-            cardResult.setText(String.format(
+            String overlaySummary = String.format(\n                    Locale.getDefault(),\n                    "%s\\nЭквити: %.1f%%",\n                    handText, equity.equity);\n            publishOverlayState(overlaySummary);\n\n            cardResult.setText(String.format(
                     Locale.getDefault(),
                     "%s\n\nЭквити против случайной руки: %.1f%%" +
                     "\nПобеды: %d" +
