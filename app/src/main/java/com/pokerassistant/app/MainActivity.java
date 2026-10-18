@@ -1502,6 +1502,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        equityRequestId.incrementAndGet();
+        equityExecutor.shutdownNow();
         unregisterCaptureServiceReceiver();
         pendingCaptureData = null;
         releaseCaptureResources();
