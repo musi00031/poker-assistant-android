@@ -155,8 +155,6 @@ public class MainActivity extends Activity {
 
         addDivider(root);
 
-: выбор карманных и общих карт
-        addDivider(root);
 
         TextView cardsTitle = new TextView(this);
         cardsTitle.setText("КАРТЫ И ЭКВИТИ");
