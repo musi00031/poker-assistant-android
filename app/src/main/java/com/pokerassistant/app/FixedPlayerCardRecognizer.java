@@ -90,8 +90,25 @@ public final class FixedPlayerCardRecognizer {
             return result;
         }
 
-        addRegion(result, frame, "PLAYER_LEFT", LEFT_CARD);
-        addRegion(result, frame, "PLAYER_RIGHT", RIGHT_CARD);
+        Bitmap workingFrame = frame;
+        boolean rotatedFrame = false;
+
+        // ClubGG can switch to landscape after capture starts. The saved reference
+        // screenshot is portrait, so normalize a landscape capture before cropping.
+        if (frame.getWidth() > frame.getHeight()) {
+            android.graphics.Matrix rotation = new android.graphics.Matrix();
+            rotation.postRotate(90f);
+            workingFrame = Bitmap.createBitmap(
+                    frame, 0, 0, frame.getWidth(), frame.getHeight(), rotation, true);
+            rotatedFrame = workingFrame != frame;
+        }
+
+        addRegion(result, workingFrame, "PLAYER_LEFT", LEFT_CARD);
+        addRegion(result, workingFrame, "PLAYER_RIGHT", RIGHT_CARD);
+
+        if (rotatedFrame && !workingFrame.isRecycled()) {
+            workingFrame.recycle();
+        }
 
         return result;
     }
