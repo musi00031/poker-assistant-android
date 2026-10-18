@@ -35,9 +35,10 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
 
-    private final int BG = Color.rgb(12, 12, 14);
-    private final int PANEL = Color.rgb(27, 27, 31);
-    private final int SILVER = Color.rgb(205, 205, 215);
+    private final int BG = Color.rgb(8, 9, 12);
+    private final int PANEL = Color.rgb(21, 22, 27);
+    private final int SILVER = Color.rgb(205, 211, 224);
+    private final int ACCENT = Color.rgb(196, 42, 57);
     private final int MUTED = Color.rgb(145, 145, 155);
     private final int WHITE = Color.WHITE;
     private static final int SCREEN_CAPTURE_REQUEST = 7001;
@@ -49,6 +50,8 @@ public class MainActivity extends Activity {
     private TextView result;
     private TextView captureStatusView;
     private TextView captureFramesView;
+    private ImageView capturePreviewView;
+    private long lastPreviewAtMs = 0;
     private TextView ocrResultView;
     private Button captureButton;
 
@@ -82,6 +85,10 @@ public class MainActivity extends Activity {
     private TextView cardSourceStatus;
     private boolean autoCardMode = true;
     private boolean fixedCardOcrInProgress = false;
+    private volatile boolean boardCardOcrInProgress = false;
+    private String pendingBoardKey = null;
+    private int pendingBoardCount = 0;
+    private static final int REQUIRED_BOARD_CONFIRMATIONS = 2;
 
     // Подтверждение пары карт по последовательным результатам OCR.
     private String pendingCardPair = null;
@@ -105,9 +112,14 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
 
-        screenWidth = getResources().getDisplayMetrics().widthPixels;
-        screenHeight = getResources().getDisplayMetrics().heightPixels;
-        screenDensity = getResources().getDisplayMetrics().densityDpi;
+        // Захват должен использовать полный физический размер дисплея,
+        // а не размеры окна приложения (на Android 15/16 они могут отличаться).
+        android.util.DisplayMetrics captureMetrics =
+                new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(captureMetrics);
+        screenWidth = captureMetrics.widthPixels;
+        screenHeight = captureMetrics.heightPixels;
+        screenDensity = captureMetrics.densityDpi;
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
@@ -120,7 +132,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView brand = new TextView(this);
-        brand.setText("POKER ASSISTANT");
+        brand.setText("POKER ASSISTANT  /  PRO");
         brand.setTextColor(SILVER);
         brand.setTextSize(12);
         brand.setLetterSpacing(0.18f);
@@ -128,7 +140,7 @@ public class MainActivity extends Activity {
         root.addView(brand);
 
         TextView title = new TextView(this);
-        title.setText("Покерный\nкалькулятор");
+        title.setText("Покерный\nассистент");
         title.setTextColor(WHITE);
         title.setTextSize(30);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -136,28 +148,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Расчёт банка и математической выгодности колла");
+        subtitle.setText("CLUBGG · АВТОРАСПОЗНАВАНИЕ · LIVE АНАЛИЗ");
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(14);
         root.addView(subtitle);
 
         addDivider(root);
 
-        TextView section = new TextView(this);
-        section.setText("АВТОМАТИЧЕСКИЙ АНАЛИЗ РАЗДАЧИ");
-        section.setTextColor(SILVER);
-        section.setTextSize(12);
-        section.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        root.addView(section);
-
-        TextView sectionInfo = new TextView(this);
-        sectionInfo.setText("Карты считываются с экрана; комбинация и эквити пересчитываются автоматически. Ручной расчёт банка и ввод эквити убраны.");
-        sectionInfo.setTextColor(MUTED);
-        sectionInfo.setTextSize(13);
-        sectionInfo.setPadding(0, dp(8), 0, dp(4));
-        root.addView(sectionInfo);
-
-        // CARD_PICKER_SECTION: автоматическое распознавание карманных и общих карт
+: выбор карманных и общих карт
         addDivider(root);
 
         TextView cardsTitle = new TextView(this);
@@ -169,7 +167,8 @@ public class MainActivity extends Activity {
 
         TextView cardsInfo = new TextView(this);
         cardsInfo.setText(
-                "Распознавание работает автоматически. Дождись подтверждения карт в нескольких кадрах; при ошибке проверь, что карты полностью видны и стол не перекрыт.");
+                "Карты игрока и борд определяются автоматически по кадрам ClubGG. " +
+                "Комбинация, эквити и подсказки пересчитываются без ручного ввода.");
         cardsInfo.setTextColor(MUTED);
         cardsInfo.setTextSize(12);
         cardsInfo.setPadding(0, dp(8), 0, dp(12));
@@ -187,7 +186,7 @@ public class MainActivity extends Activity {
 
         for (int i = 0; i < 2; i++) {
             final int index = i;
-            Button b = makeButton("Ожидание");
+            Button b = makeButton("Выбрать");
             heroCardButtons[i] = b;
             LinearLayout.LayoutParams lp =
                     new LinearLayout.LayoutParams(0, dp(48), 1f);
@@ -209,7 +208,7 @@ public class MainActivity extends Activity {
 
         for (int i = 0; i < 3; i++) {
             final int index = i;
-            Button b = makeButton("—");
+            Button b = makeButton("--");
             boardCardButtons[i] = b;
             LinearLayout.LayoutParams lp =
                     new LinearLayout.LayoutParams(0, dp(44), 1f);
@@ -231,31 +230,21 @@ public class MainActivity extends Activity {
                     new LinearLayout.LayoutParams(0, dp(44), 1f);
             lp.setMargins(0, dp(4), dp(4), dp(8));
             boardRow2.addView(b, lp);
-            b.setClickable(false);
-            b.setFocusable(false);
+            b.setOnClickListener(v -> showCardPicker(false, index));
         }
-
-        TextView automaticMath = new TextView(this);
-        automaticMath.setText("Автоматическая математика включена");
-        automaticMath.setTextColor(MUTED);
-        automaticMath.setTextSize(12);
-        automaticMath.setPadding(0, dp(8), 0, dp(12));
-        root.addView(automaticMath);
 
         LinearLayout cardPanel = new LinearLayout(this);
         cardPanel.setOrientation(LinearLayout.VERTICAL);
         cardPanel.setPadding(dp(16), dp(16), dp(16), dp(16));
-        cardPanel.setBackgroundColor(PANEL);
+        cardPanel.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 18));
         root.addView(cardPanel);
 
         cardSourceStatus = new TextView(this);
         cardSourceStatus.setTextColor(SILVER);
         cardSourceStatus.setTextSize(12);
         cardSourceStatus.setPadding(0, 0, 0, dp(8));
-        cardSourceStatus.setText("Источник карт: автоматическое распознавание");
+        cardSourceStatus.setText("Автораспознавание карт включено");
         cardPanel.addView(cardSourceStatus);
-
-        autoCardMode = true;
 
         cardResult = new TextView(this);
         cardResult.setTextColor(WHITE);
@@ -265,7 +254,7 @@ public class MainActivity extends Activity {
 
         refreshCardButtons();
         cardResult.setText(
-                "Ожидание автоматического распознавания карманных и общих карт.\nПодсказка: для стабильного результата не закрывай карты оверлеем и дождись подтверждения.");
+                "Ожидание автоматического распознавания.\nПодсказка: не закрывай карты оверлеем и дождись подтверждения нескольких кадров.");
 
         TextView captureTitle = new TextView(this);
         captureTitle.setText("АНАЛИЗ ИЗОБРАЖЕНИЯ");
@@ -283,7 +272,7 @@ public class MainActivity extends Activity {
         root.addView(captureInfo);
 
         captureStatusView = new TextView(this);
-        captureStatusView.setText("● Демонстрация экрана не активна");
+        captureStatusView.setText("●  ЗАХВАТ ЭКРАНА НЕ АКТИВЕН");
         captureStatusView.setTextColor(MUTED);
         captureStatusView.setTextSize(14);
         captureStatusView.setPadding(0, dp(12), 0, dp(8));
@@ -295,8 +284,23 @@ public class MainActivity extends Activity {
         captureFramesView.setTextSize(12);
         root.addView(captureFramesView);
 
+        TextView previewTitle = new TextView(this);
+        previewTitle.setText("ПОСЛЕДНИЙ КАДР ЗАХВАТА");
+        previewTitle.setTextColor(SILVER);
+        previewTitle.setTextSize(12);
+        previewTitle.setPadding(0, dp(12), 0, dp(6));
+        root.addView(previewTitle);
+
+        capturePreviewView = new ImageView(this);
+        capturePreviewView.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 12));
+        capturePreviewView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        capturePreviewView.setAdjustViewBounds(true);
+        capturePreviewView.setMaxHeight(dp(440));
+        capturePreviewView.setMinimumHeight(dp(160));
+        root.addView(capturePreviewView, new LinearLayout.LayoutParams(-1, dp(440)));
+
         TextView ocrTitle = new TextView(this);
-        ocrTitle.setText("АНАЛИЗАТОР · СТАТУС И ПОДСКАЗКИ");
+        ocrTitle.setText("АНАЛИЗАТОР · ДИАГНОСТИКА И ПОДСКАЗКИ");
         ocrTitle.setTextColor(SILVER);
         ocrTitle.setTextSize(12);
         ocrTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -310,9 +314,38 @@ public class MainActivity extends Activity {
         ocrResultView.setMaxLines(8);
         ocrResultView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         ocrResultView.setPadding(dp(12), dp(12), dp(12), dp(12));
-        ocrResultView.setBackgroundColor(PANEL);
-        // Фиксированная высота не даёт растущему OCR-тексту сдвигать весь экран.
-        root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, dp(180)));
+        ocrResultView.setBackground(roundedPanel(PANEL, Color.rgb(56, 58, 68), 14));
+        // Фиксированная высота не даёт длинным диагностическим сообщениям сдвигать интерфейс.
+        root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, dp(190)));
+
+        Button overlayButton = makeButton("ПОКАЗАТЬ ПАНЕЛЬ ПОВЕРХ ИГРЫ");
+        LinearLayout.LayoutParams overlayParams =
+                new LinearLayout.LayoutParams(-1, dp(50));
+        overlayParams.setMargins(0, dp(10), 0, dp(4));
+        root.addView(overlayButton, overlayParams);
+        overlayButton.setOnClickListener(v -> {
+            if (android.os.Build.VERSION.SDK_INT >= 23
+                    && !android.provider.Settings.canDrawOverlays(this)) {
+                Intent permissionIntent = new Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName())
+                );
+                startActivity(permissionIntent);
+                Toast.makeText(
+                        this,
+                        "Разреши отображение поверх других приложений, затем нажми кнопку ещё раз",
+                        Toast.LENGTH_LONG
+                ).show();
+                return;
+            }
+            Intent overlayIntent = new Intent(this, OverlayService.class);
+            overlayIntent.setAction(OverlayService.ACTION_TOGGLE);
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(overlayIntent);
+            } else {
+                startService(overlayIntent);
+            }
+        });
 
         captureButton = makeButton("НАЧАТЬ ДЕМОНСТРАЦИЮ ЭКРАНА");
         root.addView(captureButton, new LinearLayout.LayoutParams(-1, dp(54)));
@@ -419,11 +452,11 @@ public class MainActivity extends Activity {
 
             String rejectionReason;
             if (invalidResult) {
-                rejectionReason = "OCR не распознал ровно одну карту в области";
+                rejectionReason = "в одной из областей не удалось определить одну карту";
             } else if (left == null) {
-                rejectionReason = "не распознана левая карта";
+                rejectionReason = "левая карта не найдена";
             } else if (right == null) {
-                rejectionReason = "не распознана правая карта";
+                rejectionReason = "правая карта не найдена";
             } else {
                 rejectionReason = "обе карты одинаковые: " + left;
             }
@@ -436,7 +469,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (autoCardMode && cardSourceStatus != null) {
                     cardSourceStatus.setText(
-                            "Автораспознавание: ожидаю две разные карты"
+                            "Пока не вижу обе карты. Проверь положение карт внизу стола."
                     );
                 }
             });
@@ -468,7 +501,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (autoCardMode && cardSourceStatus != null) {
                     cardSourceStatus.setText(
-                            "Подтверждение карт: "
+                            "Проверяю карты: "
                                     + confirmations + "/"
                                     + REQUIRED_CARD_CONFIRMATIONS
                     );
@@ -505,8 +538,17 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            boolean heroPairChanged = heroCards[0] == null || heroCards[1] == null
+                    || !heroCards[0].equals(detectedLeft)
+                    || !heroCards[1].equals(detectedRight);
+            if (heroPairChanged) {
+                for (int i = 0; i < boardCards.length; i++) boardCards[i] = null;
+                pendingBoardKey = null;
+                pendingBoardCount = 0;
+            }
             heroCards[0] = detectedLeft;
             heroCards[1] = detectedRight;
+            publishOverlayState("Карты: " + cardLabel(detectedLeft) + " " + cardLabel(detectedRight));
 
             refreshCardButtons();
 
@@ -522,19 +564,107 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void applyRecognizedBoardCards(
+            List<PokerEngine.Card> detected, String diagnostic) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(() -> applyRecognizedBoardCards(detected, diagnostic));
+            return;
+        }
+        if (!autoCardMode) return;
+        if (detected == null || detected.size() < 3 || detected.size() > 5) {
+            android.util.Log.d("PokerBoardModel", diagnostic == null
+                    ? "Общие карты не подтверждены" : diagnostic);
+            if (ocrResultView != null && diagnostic != null) {
+                String current = ocrResultView.getText().toString();
+                int start = current.indexOf("\n\nОБЩИЕ КАРТЫ");
+                if (start >= 0) current = current.substring(0, start);
+                ocrResultView.setText(current + "\n\nОБЩИЕ КАРТЫ\n" + diagnostic);
+            }
+            pendingBoardKey = null;
+            pendingBoardCount = 0;
+            return;
+        }
+
+        for (PokerEngine.Card card : detected) {
+            if (card == null || (heroCards[0] != null && heroCards[0].equals(card))
+                    || (heroCards[1] != null && heroCards[1].equals(card))) {
+                pendingBoardKey = null;
+                pendingBoardCount = 0;
+                return;
+            }
+        }
+        for (int i = 0; i < detected.size(); i++) {
+            for (int j = i + 1; j < detected.size(); j++) {
+                if (detected.get(i).equals(detected.get(j))) {
+                    pendingBoardKey = null;
+                    pendingBoardCount = 0;
+                    return;
+                }
+            }
+        }
+
+        StringBuilder keyBuilder = new StringBuilder();
+        for (PokerEngine.Card card : detected) keyBuilder.append(card.toString()).append('|');
+        String key = keyBuilder.toString();
+        if (key.equals(pendingBoardKey)) pendingBoardCount++;
+        else {
+            pendingBoardKey = key;
+            pendingBoardCount = 1;
+        }
+        if (pendingBoardCount < REQUIRED_BOARD_CONFIRMATIONS) {
+            if (cardSourceStatus != null) {
+                cardSourceStatus.setText("Проверяю общие карты: " + pendingBoardCount
+                        + "/" + REQUIRED_BOARD_CONFIRMATIONS);
+            }
+            return;
+        }
+
+        int existingCount = 0;
+        for (PokerEngine.Card card : boardCards) if (card != null) existingCount++;
+        if (detected.size() < existingCount) {
+            // Never downgrade a turn/river to a partial flop when the detector misses a card.
+            return;
+        }
+
+        boolean changed = detected.size() != existingCount;
+        for (int i = 0; i < detected.size(); i++) {
+            if (boardCards[i] == null || !boardCards[i].equals(detected.get(i))) changed = true;
+        }
+        if (!changed) return;
+
+        for (int i = 0; i < boardCards.length; i++) {
+            boardCards[i] = i < detected.size() ? detected.get(i) : null;
+        }
+        refreshCardButtons();
+        if (cardSourceStatus != null) {
+            StringBuilder status = new StringBuilder("Распознаны общие карты: ");
+            for (PokerEngine.Card card : detected) status.append(cardLabel(card)).append(' ');
+            cardSourceStatus.setText(status.toString().trim());
+        }
+        if (ocrResultView != null) {
+            String current = ocrResultView.getText().toString();
+            int start = current.indexOf("\n\nОБЩИЕ КАРТЫ");
+            if (start >= 0) current = current.substring(0, start);
+            StringBuilder section = new StringBuilder("\n\nОБЩИЕ КАРТЫ\n");
+            for (PokerEngine.Card card : detected) section.append(cardLabel(card)).append(' ');
+            ocrResultView.setText(current + section.toString().trim());
+        }
+        calculateCards();
+    }
+
     private void refreshCardButtons() {
         for (int i = 0; i < heroCardButtons.length; i++) {
             if (heroCardButtons[i] != null) {
                 heroCardButtons[i].setText(
                         heroCards[i] == null
-                                ? "Выбрать"
+                                ? "Ожидание"
                                 : cardLabel(heroCards[i]));
             }
         }
 
         for (int i = 0; i < boardCardButtons.length; i++) {
             if (boardCardButtons[i] != null) {
-                boardCardButtons[i].setText(cardLabel(boardCards[i]));
+                boardCardButtons[i].setText(boardCards[i] == null ? "—" : cardLabel(boardCards[i]));
             }
         }
     }
@@ -609,11 +739,24 @@ public class MainActivity extends Activity {
 
 
 
+    private void publishOverlayState(String state) {
+        Intent intent = new Intent(this, OverlayService.class);
+        intent.setAction(OverlayService.ACTION_UPDATE);
+        intent.putExtra(OverlayService.EXTRA_STATE, state);
+        try {
+            startService(intent);
+        } catch (Exception error) {
+            android.util.Log.w("PokerOverlay", "Не удалось обновить панель", error);
+        }
+    }
+
     private void calculateCards() {
         try {
             if (heroCards[0] == null || heroCards[1] == null) {
-                cardResult.setText("Сначала выбери две свои карты.");
-return;
+                String message = "Сначала выбери две свои карты.";
+                cardResult.setText(message);
+                publishOverlayState(message);
+                return;
             }
 
             List<PokerEngine.Card> hero = new ArrayList<>();
@@ -628,9 +771,10 @@ return;
                     foundEmpty = true;
                 } else {
                     if (foundEmpty) {
-                        cardResult.setText(
-                                "Заполняй общие карты по порядку: " +
-                                "сначала флоп, затем тёрн и ривер.");
+                        String message = "Заполняй общие карты по порядку: "
+                                + "сначала флоп, затем тёрн и ривер.";
+                        cardResult.setText(message);
+                        publishOverlayState(message);
                         return;
                     }
                     board.add(card);
@@ -638,8 +782,9 @@ return;
             }
 
             if (board.size() == 1 || board.size() == 2) {
-                cardResult.setText(
-                        "Для борда выбери либо 0 карт, либо 3, 4 или 5.");
+                String message = "Для борда выбери либо 0 карт, либо 3, 4 или 5.";
+                cardResult.setText(message);
+                publishOverlayState(message);
                 return;
             }
 
@@ -656,15 +801,24 @@ return;
 
             PokerEngine.Result equity =
                     PokerEngine.calculateEquity(hero, board, 3000);
+            LiveHandAnalyzer.Report liveReport =
+                    LiveHandAnalyzer.analyze(hero, board, equity.equity);
+
+            String overlaySummary = String.format(
+                    Locale.getDefault(),
+                    "%s\nЭквити: %.1f%%\n%s\n%s",
+                    liveReport.street, equity.equity,
+                    liveReport.hand, liveReport.advice);
+            publishOverlayState(overlaySummary);
 
             cardResult.setText(String.format(
                     Locale.getDefault(),
-                    "%s\n\nЭквити против случайной руки: %.1f%%" +
-                    "\nПобеды: %d" +
-                    "\nНичьи: %d" +
-                    "\nПоражения: %d" +
-                    "\nСимуляций: %d",
-                    handText,
+                    "%s\n\n%s\n%s\n\nЭквити против случайной руки: %.1f%%" +
+                    "\nПобеды: %d · Ничьи: %d · Поражения: %d" +
+                    "\nРасчётов: %d\n\nВажно: это ориентир против случайной руки, не точный диапазон соперника.",
+                    liveReport.street,
+                    liveReport.hand,
+                    liveReport.draws,
                     equity.equity,
                     equity.wins,
                     equity.ties,
@@ -672,7 +826,9 @@ return;
                     equity.simulations
             ));
 } catch (Exception e) {
-            cardResult.setText("Ошибка расчёта: " + e.getMessage());
+            String message = "Ошибка расчёта: " + e.getMessage();
+            cardResult.setText(message);
+            publishOverlayState(message);
 }
     }
 
@@ -685,15 +841,32 @@ return;
         root.addView(divider, params);
     }
 
+    private android.graphics.drawable.GradientDrawable roundedPanel(
+            int fill, int stroke, int radiusDp) {
+        android.graphics.drawable.GradientDrawable drawable =
+                new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), stroke);
+        return drawable;
+    }
+
     private Button makeButton(String text) {
         Button button = new Button(this);
         button.setText(text);
-        button.setTextColor(Color.BLACK);
-        button.setTextSize(14);
+        button.setTextColor(SILVER);
+        button.setTextSize(13);
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setAllCaps(false);
-        button.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(SILVER));
+        button.setLetterSpacing(0.025f);
+        button.setPadding(dp(12), dp(8), dp(12), dp(8));
+        button.setBackground(roundedPanel(
+                Color.rgb(31, 32, 39), Color.rgb(82, 84, 96), 13));
+        if (text.toUpperCase(Locale.ROOT).contains("РАССЧИТАТЬ")
+                || text.toUpperCase(Locale.ROOT).contains("ПОКАЗАТЬ ПАНЕЛЬ")) {
+            button.setTextColor(Color.WHITE);
+            button.setBackground(roundedPanel(ACCENT, Color.rgb(235, 85, 96), 13));
+        }
         return button;
     }
 
@@ -1009,8 +1182,10 @@ return;
 
             capturedFrames++;
             if (captureFramesView != null && capturedFrames % 3 == 0) {
-                captureFramesView.setText("Обработано кадров: " + capturedFrames);
+                captureFramesView.setText("Обработано кадров: " + capturedFrames
+                        + " · кадр " + screenWidth + "×" + screenHeight);
             }
+            updateCapturePreview(frame);
             runOcrOnFrame(frame);
 
         } catch (Exception e) {
@@ -1036,6 +1211,28 @@ return;
                 handler.removeCallbacks(captureFrameTask);
                 handler.postDelayed(captureFrameTask, 300);
             }
+        }
+    }
+
+    private void updateCapturePreview(Bitmap frame) {
+        if (capturePreviewView == null || frame == null || frame.isRecycled()) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastPreviewAtMs < 2500) return;
+        lastPreviewAtMs = now;
+        try {
+            int maxWidth = Math.min(480, Math.max(240, frame.getWidth()));
+            float scale = maxWidth / (float) frame.getWidth();
+            int targetWidth = Math.max(1, Math.round(frame.getWidth() * scale));
+            int targetHeight = Math.max(1, Math.round(frame.getHeight() * scale));
+            Bitmap preview = Bitmap.createScaledBitmap(frame, targetWidth, targetHeight, true);
+            runOnUiThread(() -> {
+                if (capturePreviewView != null) capturePreviewView.setImageBitmap(preview);
+            });
+            android.util.Log.i("PokerCapturePreview", "Кадр захвата: "
+                    + frame.getWidth() + "x" + frame.getHeight()
+                    + ", preview=" + targetWidth + "x" + targetHeight);
+        } catch (Exception error) {
+            android.util.Log.e("PokerCapturePreview", "Не удалось показать кадр захвата", error);
         }
     }
 
@@ -1114,22 +1311,15 @@ return;
             }
                         }
 
-                        String candidateSummary =
-                                PlayingCardTextParser.format(cardCandidates);
-
-                        String displayText = detected.isEmpty()
-                                ? "Текст не найден. Попробуй открыть стол крупнее и с хорошей контрастностью."
-                                : detected
-                                    + "\n\nКандидаты OCR (не подтверждены): "
-                                    + candidateSummary
-                                    + "\n\nCardImageRecognizer: "
-                                    + (imageSummary.length() == 0
-                                        ? "карт не найдено"
-                                        : imageSummary.toString());
+                        String displayText = "ПРОВЕРКА КАРТ\n"
+                                + (detected.isEmpty()
+                                    ? "Изображение экрана получено. Читаемый текст не найден.\n"
+                                    : "Экран получен. Проверяю две твои карты…\n")
+                                + "Если карты не появятся ниже, проверь, что они полностью видны на столе.";
 
                         String status = detected.isEmpty()
-                                ? "OCR: текст не найден"
-                                : "OCR: текст распознан";
+                                ? "Экран получен, карты ещё не найдены"
+                                : "Экран получен, проверяю карты";
 
                         runOnUiThread(() -> {
                             if (ocrResultView != null) {
@@ -1143,12 +1333,31 @@ return;
                             );
                         });
 
+                        // Общие карты ищутся отдельной моделью в центральной области стола.
+                        // ROI копируется синхронно до освобождения исходного кадра.
+                        if (!boardCardOcrInProgress) {
+                            boardCardOcrInProgress = true;
+                            try {
+                                BoardCardRecognizer.recognize(
+                                        MainActivity.this, bitmapForOcr,
+                                        (board, diagnostic) -> {
+                                            boardCardOcrInProgress = false;
+                                            applyRecognizedBoardCards(board, diagnostic);
+                                        });
+                            } catch (Exception error) {
+                                boardCardOcrInProgress = false;
+                                android.util.Log.e("PokerBoardModel",
+                                        "Не удалось запустить распознавание общих карт", error);
+                            }
+                        }
+
                         // Отдельное последовательное OCR фиксированных карт игрока.
                         // Изображения областей создаются до освобождения исходного кадра.
                         if (!fixedCardOcrInProgress) {
                             fixedCardOcrInProgress = true;
                             try {
                                 FixedPlayerCardRecognizer.recognize(
+                                    MainActivity.this,
                                     bitmapForOcr,
                                     fixedResults -> {
                                         fixedCardOcrInProgress = false;
@@ -1165,10 +1374,12 @@ return;
                                     }
 
                                     String section =
-                                            "\n\nФИКСИРОВАННЫЕ КАРТЫ ИГРОКА:\n"
+                                            "\n\nТВОИ КАРТЫ\n"
                                             + (fixedSummary.length() == 0
-                                                ? "Области карт не получены"
-                                                : fixedSummary.toString());
+                                                ? "Не удалось получить изображение карт. Перезапусти захват экрана."
+                                                : fixedSummary.toString())
+                                            + "\n\nДИАГНОСТИКА ONNX\n"
+                                            + OnnxCardDetector.getDiagnostic();
 
                                     runOnUiThread(() -> {
                                         if (ocrResultView == null) {
@@ -1179,7 +1390,7 @@ return;
                                                 ocrResultView.getText().toString();
 
                                         String heading =
-                                                "\n\nФИКСИРОВАННЫЕ КАРТЫ ИГРОКА:";
+                                                "\n\nТВОИ КАРТЫ";
 
                                         int oldSection = current.indexOf(heading);
                                         if (oldSection >= 0) {
