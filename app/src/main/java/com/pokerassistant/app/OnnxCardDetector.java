@@ -25,7 +25,7 @@ import java.util.List;
 final class OnnxCardDetector {
     private static final String TAG = "PokerCardModel";
     private static final int PAD = 114;
-    private static final float MIN_CONFIDENCE = 0.30f;
+    private static final float MIN_CONFIDENCE = 0.12f;
     private static final float NMS_IOU = 0.45f;
     private static final int MAX_DETECTIONS = 12;
 
@@ -129,7 +129,7 @@ final class OnnxCardDetector {
                 new long[]{1, 3, inputHeight, inputWidth});
              OrtSession.Result result = session.run(Collections.singletonMap(inputName, tensor))) {
             if (result.size() == 0 || !(result.get(0).getValue() instanceof float[][][])) {
-                Log.w(TAG, "Модель вернула неподдерживаемый результат");
+                Log.w(TAG, "Модель вернула неподдерживаемый результат: outputCount=" + result.size() + ", outputType=" + (result.size() == 0 ? "empty" : result.get(0).getValue().getClass().getName()));
                 return Collections.emptyList();
             }
 
@@ -144,8 +144,8 @@ final class OnnxCardDetector {
             } else if (matrix[0].length == channels) {
                 channelsFirst = false;
             } else {
-                Log.w(TAG, "Неожиданный формат выхода модели: "
-                        + matrix.length + "x" + matrix[0].length);
+                Log.e(TAG, "Неожиданный формат выхода модели: "
+                        + matrix.length + "x" + matrix[0].length + "; ожидалось 56xN или Nx56");
                 return Collections.emptyList();
             }
 
@@ -157,7 +157,7 @@ final class OnnxCardDetector {
                 float w = value(matrix, channelsFirst, 2, i);
                 float h = value(matrix, channelsFirst, 3, i);
                 if (!finite(cx) || !finite(cy) || !finite(w) || !finite(h)
-                        || w < inputWidth * 0.035f || h < inputHeight * 0.07f
+                        || w < inputWidth * 0.015f || h < inputHeight * 0.025f
                         || w > inputWidth * 1.10f || h > inputHeight * 1.10f) {
                     continue;
                 }
@@ -201,7 +201,11 @@ final class OnnxCardDetector {
                     if (kept.size() >= MAX_DETECTIONS) break;
                 }
             }
-            Log.d(TAG, "Распознано объектов-кандидатов: " + kept.size());
+            Log.d(TAG, "Детектор: source=" + source.getWidth() + "x" + source.getHeight()
+                    + ", model=" + inputWidth + "x" + inputHeight
+                    + ", порог=" + MIN_CONFIDENCE + ", кандидатов после NMS=" + kept.size()
+                    + (candidates.isEmpty() ? "" : ", лучший=" + candidates.get(0).code
+                    + " confidence=" + candidates.get(0).confidence));
             return kept;
         } catch (Exception e) {
             Log.e(TAG, "Не удалось распознать карты", e);
