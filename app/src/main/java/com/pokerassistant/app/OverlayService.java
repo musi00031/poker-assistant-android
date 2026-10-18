@@ -29,6 +29,7 @@ public final class OverlayService extends Service {
     private TextView stateView;
     private WindowManager.LayoutParams params;
     private boolean expanded = false;
+    private static volatile String latestState = "Ожидание карт…\\nОткрой стол ClubGG";
 
     @Override public void onCreate() {
         super.onCreate();
@@ -39,9 +40,11 @@ public final class OverlayService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_UPDATE.equals(intent.getAction())) {
             String state = intent.getStringExtra(EXTRA_STATE);
-            if (state != null && stateView != null) {
-                stateView.setText(state);
-            } else if (overlay == null) {
+            if (state != null) {
+                latestState = state;
+                if (stateView != null) stateView.setText(state);
+            }
+            if (overlay == null) {
                 // Не оставляем фоновую службу запущенной, если панель не открыта.
                 stopSelf();
             }
@@ -90,7 +93,7 @@ public final class OverlayService extends Service {
         panel.setBackgroundColor(Color.rgb(20, 20, 24));
 
         TextView heading = new TextView(this);
-        heading.setText("POKER ASSISTANT  ×");
+        heading.setText("POKER ASSISTANT  ·  КОМПАКТНО");
         heading.setTextColor(Color.rgb(210, 210, 220));
         heading.setTextSize(12);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -139,8 +142,8 @@ public final class OverlayService extends Service {
                         params.width = expanded
                                 ? WindowManager.LayoutParams.MATCH_PARENT : dp(230);
                         heading.setText(expanded
-                                ? "POKER ASSISTANT  ·  ПОЛНАЯ ПАНЕЛЬ  ×"
-                                : "POKER ASSISTANT  ·  КОМПАКТНО  ×");
+                                ? "POKER ASSISTANT  ·  ПОЛНАЯ ПАНЕЛЬ"
+                                : "POKER ASSISTANT  ·  КОМПАКТНО");
                         try { windowManager.updateViewLayout(panel, params); }
                         catch (Exception ignored) {}
                     }
