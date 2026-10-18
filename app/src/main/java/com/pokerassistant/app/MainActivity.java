@@ -765,7 +765,9 @@ public class MainActivity extends Activity {
             runOnUiThread(this::calculateCards);
             return;
         }
-        if (cardResult == null) return;
+        if (cardResult == null || isFinishing() || isDestroyed()) return;
+        // Invalidate any older simulation even if the current state fails validation.
+        final int requestId = equityRequestId.incrementAndGet();
 
         if (heroCards[0] == null || heroCards[1] == null) {
             String message = "Ожидаю распознавания обеих карманных карт.";
@@ -810,7 +812,6 @@ public class MainActivity extends Activity {
             return;
         }
 
-        final int requestId = equityRequestId.incrementAndGet();
         final int simulations = 5000;
         cardResult.setText("Проверяю руку и рассчитываю эквити… (" + simulations + " симуляций)");
         publishOverlayState("Проверяю карты и рассчитываю эквити…");
