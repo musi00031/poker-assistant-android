@@ -39,7 +39,12 @@ public final class OverlayService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_UPDATE.equals(intent.getAction())) {
             String state = intent.getStringExtra(EXTRA_STATE);
-            if (state != null && stateView != null) stateView.setText(state);
+            if (state != null && stateView != null) {
+                stateView.setText(state);
+            } else if (overlay == null) {
+                // Не оставляем фоновую службу запущенной, если панель не открыта.
+                stopSelf();
+            }
             return START_NOT_STICKY;
         }
 
