@@ -96,7 +96,11 @@ final class OnnxCardDetector {
     /** Single-card convenience method used by the fixed player-card crops. */
     synchronized String detect(Bitmap source) {
         List<Detection> detections = detectAll(source);
-        return detections.isEmpty() ? null : detections.get(0).code;
+        if (detections.isEmpty()) return null;
+        Detection best = detections.get(0);
+        // On tiny fixed card crops a weak detection is more dangerous than no result:
+        // send ambiguous crops to the independent OCR/color path instead.
+        return best.confidence >= 0.30f ? best.code : null;
     }
 
     /** Detects multiple cards and returns source-image coordinates, strongest first. */
@@ -249,10 +253,10 @@ final class OnnxCardDetector {
                         bestClass = c;
                     }
                 }
-                // Alternative tensor layouts can produce substantially lower calibrated scores.
-                // Keep a conservative floor, but do not discard every fallback candidate
-                // merely because its confidence is below 0.25.
-                float requiredConfidence = preprocessingMode == 0 ? MIN_CONFIDENCE : 0.015f;
+                // Preprocessing fallbacks may change scores, but a near-zero score is
+                // not evidence of a card. Never relax the confidence floor by mode:
+                // weak detections on the felt cause confidently wrong poker calculations.
+                float requiredConfidence = MIN_CONFIDENCE;
                 if (bestClass < 0 || bestScore < requiredConfidence) continue;
 
                 float x1 = clamp((cx - w / 2f - left) / scale, 0f, source.getWidth());
