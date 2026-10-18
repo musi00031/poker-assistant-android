@@ -19,12 +19,12 @@ public final class FixedPlayerCardRecognizer {
     public static final int REFERENCE_WIDTH = 1220;
     public static final int REFERENCE_HEIGHT = 2712;
 
-    // Предварительные координаты. Точность областей проверим отдельно.
+    // Проверенные фиксированные координаты карт игрока.
     private static final Rect LEFT_CARD =
-            new Rect(45, 1935, 240, 2110);
+            new Rect(50, 1945, 170, 2140);
 
     private static final Rect RIGHT_CARD =
-            new Rect(155, 1935, 350, 2110);
+            new Rect(160, 1945, 280, 2140);
 
     public static final class CardRegion {
         public final String position;
@@ -115,7 +115,19 @@ public final class FixedPlayerCardRecognizer {
                 bounds.height()
         );
 
-        result.add(new CardRegion(position, bounds, crop));
+        // Увеличиваем изображение для улучшения распознавания мелких символов.
+        Bitmap enlarged = Bitmap.createScaledBitmap(
+                crop,
+                crop.getWidth() * 4,
+                crop.getHeight() * 4,
+                true
+        );
+
+        if (enlarged != crop) {
+            crop.recycle();
+        }
+
+        result.add(new CardRegion(position, bounds, enlarged));
     }
 
     public static void recognize(Bitmap frame, Callback callback) {
@@ -155,6 +167,15 @@ public final class FixedPlayerCardRecognizer {
             recognizer.process(InputImage.fromBitmap(region.image, 0))
                     .addOnSuccessListener(textResult -> {
                         String text = textResult.getText();
+
+                        android.util.Log.d(
+                                "PokerCardOCR",
+                                region.position + " OCR: "
+                                        + (text == null || text.trim().isEmpty()
+                                        ? "<пусто>"
+                                        : text.trim().replace("\\n", " | "))
+                        );
+
                         results.add(new CardTextResult(
                                 region.position,
                                 region.bounds,

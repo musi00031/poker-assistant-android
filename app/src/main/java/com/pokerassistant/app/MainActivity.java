@@ -81,6 +81,13 @@ public class MainActivity extends Activity {
     private TextView cardResult;
     private TextView cardSourceStatus;
     private boolean autoCardMode = true;
+    private boolean fixedCardOcrInProgress = false;
+
+    // Подтверждение пары карт по последовательным результатам OCR.
+    private String pendingCardPair = null;
+    private int pendingCardPairCount = 0;
+    private static final int REQUIRED_CARD_CONFIRMATIONS = 3;
+
 
     private int dp(float value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
@@ -285,6 +292,8 @@ public class MainActivity extends Activity {
         );
         autoCardToggle.setOnClickListener(v -> {
             autoCardMode = !autoCardMode;
+            pendingCardPair = null;
+            pendingCardPairCount = 0;
             autoCardToggle.setText(
                     autoCardMode
                             ? "Автораспознавание: ВКЛ"
@@ -406,23 +415,44 @@ public class MainActivity extends Activity {
     private void applyRecognizedPlayerCards(
             java.util.List<FixedPlayerCardRecognizer.CardTextResult> results) {
 
-        if (!autoCardMode || results == null) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(() -> applyRecognizedPlayerCards(results));
+            return;
+        }
+
+        if (!autoCardMode || results == null || results.isEmpty()) {
+            pendingCardPair = null;
+            pendingCardPairCount = 0;
+            android.util.Log.d(
+                    "PokerCardOCR",
+                    "Результаты отсутствуют или автораспознавание выключено"
+            );
             return;
         }
 
         PokerEngine.Card left = null;
         PokerEngine.Card right = null;
+        boolean invalidResult = false;
 
         for (FixedPlayerCardRecognizer.CardTextResult item : results) {
             if (item == null || item.text == null || item.error != null) {
-                continue;
+                invalidResult = true;
+                break;
             }
 
             java.util.List<PokerEngine.Card> parsed =
                     PlayingCardTextParser.parse(item.text);
 
+            android.util.Log.d(
+                    "PokerCardOCR",
+                    item.position + " PARSE: OCR=[" + item.text
+                            + "], cards="
+                            + (parsed == null ? "null" : parsed.toString())
+            );
+
             if (parsed == null || parsed.size() != 1) {
-                continue;
+                invalidResult = true;
+                break;
             }
 
             if ("PLAYER_LEFT".equals(item.position)) {
@@ -432,12 +462,34 @@ public class MainActivity extends Activity {
             }
         }
 
-        if (left == null || right == null
+        if (invalidResult
+                || left == null
+                || right == null
                 || left.toString().equals(right.toString())) {
+            pendingCardPair = null;
+            pendingCardPairCount = 0;
+
+            String rejectionReason;
+            if (invalidResult) {
+                rejectionReason = "OCR не распознал ровно одну карту в области";
+            } else if (left == null) {
+                rejectionReason = "не распознана левая карта";
+            } else if (right == null) {
+                rejectionReason = "не распознана правая карта";
+            } else {
+                rejectionReason = "обе карты одинаковые: " + left;
+            }
+
+            android.util.Log.d(
+                    "PokerCardOCR",
+                    "Пара отклонена: " + rejectionReason
+            );
+
             runOnUiThread(() -> {
                 if (autoCardMode && cardSourceStatus != null) {
                     cardSourceStatus.setText(
-                            "Автораспознавание: ожидаю две разные карты");
+                            "Автораспознавание: ожидаю две разные карты"
+                    );
                 }
             });
             return;
@@ -445,6 +497,37 @@ public class MainActivity extends Activity {
 
         final PokerEngine.Card detectedLeft = left;
         final PokerEngine.Card detectedRight = right;
+        final String pairKey =
+                detectedLeft.toString() + "|" + detectedRight.toString();
+
+        if (pairKey.equals(pendingCardPair)) {
+            pendingCardPairCount++;
+        } else {
+            pendingCardPair = pairKey;
+            pendingCardPairCount = 1;
+        }
+
+        final int confirmations = pendingCardPairCount;
+
+        android.util.Log.d(
+                "PokerCardOCR",
+                "Подтверждение пары: " + pairKey
+                        + "; кадр " + confirmations
+                        + "/" + REQUIRED_CARD_CONFIRMATIONS
+        );
+
+        if (confirmations < REQUIRED_CARD_CONFIRMATIONS) {
+            runOnUiThread(() -> {
+                if (autoCardMode && cardSourceStatus != null) {
+                    cardSourceStatus.setText(
+                            "Подтверждение карт: "
+                                    + confirmations + "/"
+                                    + REQUIRED_CARD_CONFIRMATIONS
+                    );
+                }
+            });
+            return;
+        }
 
         runOnUiThread(() -> {
             if (!autoCardMode) {
@@ -455,12 +538,23 @@ public class MainActivity extends Activity {
                 if (board != null
                         && (board.toString().equals(detectedLeft.toString())
                         || board.toString().equals(detectedRight.toString()))) {
+                    pendingCardPair = null;
+                    pendingCardPairCount = 0;
+
                     if (cardSourceStatus != null) {
                         cardSourceStatus.setText(
-                                "Конфликт с общей картой — проверь распознавание");
+                                "Конфликт с общей картой — проверь распознавание"
+                        );
                     }
                     return;
                 }
+            }
+
+            if (heroCards[0] != null
+                    && heroCards[1] != null
+                    && heroCards[0].toString().equals(detectedLeft.toString())
+                    && heroCards[1].toString().equals(detectedRight.toString())) {
+                return;
             }
 
             heroCards[0] = detectedLeft;
@@ -471,8 +565,9 @@ public class MainActivity extends Activity {
             if (cardSourceStatus != null) {
                 cardSourceStatus.setText(
                         "Распознаны карты: "
-                        + cardLabel(detectedLeft) + " и "
-                        + cardLabel(detectedRight));
+                                + cardLabel(detectedLeft) + " и "
+                                + cardLabel(detectedRight)
+                );
             }
 
             calculateCards();
@@ -1102,10 +1197,14 @@ return;
 
                         // Отдельное последовательное OCR фиксированных карт игрока.
                         // Изображения областей создаются до освобождения исходного кадра.
-                        FixedPlayerCardRecognizer.recognize(
-                                bitmapForOcr,
-                                fixedResults -> {
-                                    applyRecognizedPlayerCards(fixedResults);
+                        if (!fixedCardOcrInProgress) {
+                            fixedCardOcrInProgress = true;
+                            try {
+                                FixedPlayerCardRecognizer.recognize(
+                                    bitmapForOcr,
+                                    fixedResults -> {
+                                        fixedCardOcrInProgress = false;
+                                        applyRecognizedPlayerCards(fixedResults);
 
                                     StringBuilder fixedSummary = new StringBuilder();
 
@@ -1141,8 +1240,17 @@ return;
 
                                         ocrResultView.setText(current + section);
                                     });
-                                }
-                        );
+                                    }
+                                );
+                            } catch (Exception error) {
+                                fixedCardOcrInProgress = false;
+                                android.util.Log.e(
+                                        "PokerCardOCR",
+                                        "Не удалось запустить распознавание карт",
+                                        error
+                                );
+                            }
+                        }
 
                     } finally {
                         if (!bitmapForOcr.isRecycled()) {
