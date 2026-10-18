@@ -588,6 +588,7 @@ public class MainActivity extends Activity {
 
             heroCards[0] = detectedLeft;
             heroCards[1] = detectedRight;
+            publishOverlayState("Карты: " + cardLabel(detectedLeft) + " " + cardLabel(detectedRight));
 
             refreshCardButtons();
 
@@ -749,7 +750,13 @@ return;
             PokerEngine.Result equity =
                     PokerEngine.calculateEquity(hero, board, 3000);
 
-            String overlaySummary = String.format(\n                    Locale.getDefault(),\n                    "%s\\nЭквити: %.1f%%",\n                    handText, equity.equity);\n            publishOverlayState(overlaySummary);\n\n            cardResult.setText(String.format(
+            String overlaySummary = String.format(
+                    Locale.getDefault(),
+                    "%s\nЭквити: %.1f%%",
+                    handText, equity.equity);
+            publishOverlayState(overlaySummary);
+
+            cardResult.setText(String.format(
                     Locale.getDefault(),
                     "%s\n\nЭквити против случайной руки: %.1f%%" +
                     "\nПобеды: %d" +
