@@ -140,7 +140,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("CLUBGG · CARD RECOGNITION · EQUITY ENGINE");
+        subtitle.setText("CLUBGG · РАСПОЗНАВАНИЕ КАРТ · РАСЧЁТ ШАНСОВ");
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(14);
         root.addView(subtitle);
@@ -288,7 +288,7 @@ public class MainActivity extends Activity {
         cardSourceStatus.setTextColor(SILVER);
         cardSourceStatus.setTextSize(12);
         cardSourceStatus.setPadding(0, 0, 0, dp(8));
-        cardSourceStatus.setText("Источник карт: ONNX · 52 класса + OCR резерв");
+        cardSourceStatus.setText("Автораспознавание карт включено");
         cardPanel.addView(cardSourceStatus);
 
         Button autoCardToggle = makeButton("Автораспознавание: ВКЛ");
@@ -308,7 +308,7 @@ public class MainActivity extends Activity {
             if (cardSourceStatus != null) {
                 cardSourceStatus.setText(
                         autoCardMode
-                                ? "Источник карт: ONNX · 52 класса + OCR резерв"
+                                ? "Автораспознавание карт включено"
                                 : "Источник карт: ручной выбор"
                 );
             }
@@ -506,11 +506,11 @@ public class MainActivity extends Activity {
 
             String rejectionReason;
             if (invalidResult) {
-                rejectionReason = "OCR не распознал ровно одну карту в области";
+                rejectionReason = "в одной из областей не удалось определить одну карту";
             } else if (left == null) {
-                rejectionReason = "не распознана левая карта";
+                rejectionReason = "левая карта не найдена";
             } else if (right == null) {
-                rejectionReason = "не распознана правая карта";
+                rejectionReason = "правая карта не найдена";
             } else {
                 rejectionReason = "обе карты одинаковые: " + left;
             }
@@ -523,7 +523,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (autoCardMode && cardSourceStatus != null) {
                     cardSourceStatus.setText(
-                            "Автораспознавание: ожидаю две разные карты"
+                            "Пока не вижу обе карты. Проверь положение карт внизу стола."
                     );
                 }
             });
@@ -555,7 +555,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (autoCardMode && cardSourceStatus != null) {
                     cardSourceStatus.setText(
-                            "Подтверждение карт: "
+                            "Проверяю карты: "
                                     + confirmations + "/"
                                     + REQUIRED_CARD_CONFIRMATIONS
                     );
@@ -1242,22 +1242,15 @@ public class MainActivity extends Activity {
             }
                         }
 
-                        String candidateSummary =
-                                PlayingCardTextParser.format(cardCandidates);
-
-                        String displayText = detected.isEmpty()
-                                ? "Текст не найден. Попробуй открыть стол крупнее и с хорошей контрастностью."
-                                : detected
-                                    + "\n\nКандидаты OCR (не подтверждены): "
-                                    + candidateSummary
-                                    + "\n\nCardImageRecognizer: "
-                                    + (imageSummary.length() == 0
-                                        ? "карт не найдено"
-                                        : imageSummary.toString());
+                        String displayText = "ПРОВЕРКА КАРТ\n"
+                                + (detected.isEmpty()
+                                    ? "Изображение экрана получено. Читаемый текст не найден.\n"
+                                    : "Экран получен. Проверяю две твои карты…\n")
+                                + "Если карты не появятся ниже, проверь, что они полностью видны на столе.";
 
                         String status = detected.isEmpty()
-                                ? "OCR: текст не найден"
-                                : "OCR: текст распознан";
+                                ? "Экран получен, карты ещё не найдены"
+                                : "Экран получен, проверяю карты";
 
                         runOnUiThread(() -> {
                             if (ocrResultView != null) {
@@ -1294,9 +1287,9 @@ public class MainActivity extends Activity {
                                     }
 
                                     String section =
-                                            "\n\nФИКСИРОВАННЫЕ КАРТЫ ИГРОКА:\n"
+                                            "\n\nТВОИ КАРТЫ\n"
                                             + (fixedSummary.length() == 0
-                                                ? "Области карт не получены"
+                                                ? "Не удалось получить изображение карт. Перезапусти захват экрана."
                                                 : fixedSummary.toString());
 
                                     runOnUiThread(() -> {
@@ -1308,7 +1301,7 @@ public class MainActivity extends Activity {
                                                 ocrResultView.getText().toString();
 
                                         String heading =
-                                                "\n\nФИКСИРОВАННЫЕ КАРТЫ ИГРОКА:";
+                                                "\n\nТВОИ КАРТЫ";
 
                                         int oldSection = current.indexOf(heading);
                                         if (oldSection >= 0) {
