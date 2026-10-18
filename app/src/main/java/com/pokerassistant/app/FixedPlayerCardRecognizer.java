@@ -116,10 +116,12 @@ public final class FixedPlayerCardRecognizer {
         );
 
         // Увеличиваем изображение для улучшения распознавания мелких символов.
+        // Увеличиваем ROI в 5 раз: после масштабирования полного экрана
+        // мелкие ранги на ClubGG занимают мало пикселей. Фильтрация включена.
         Bitmap enlarged = Bitmap.createScaledBitmap(
                 crop,
-                crop.getWidth() * 4,
-                crop.getHeight() * 4,
+                crop.getWidth() * 5,
+                crop.getHeight() * 5,
                 true
         );
 
