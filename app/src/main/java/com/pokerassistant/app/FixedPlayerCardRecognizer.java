@@ -130,20 +130,54 @@ public final class FixedPlayerCardRecognizer {
         result.add(new CardRegion(position, bounds, enlarged));
     }
 
-    public static void recognize(Bitmap frame, Callback callback) {
-        List<CardRegion> regions = extract(frame);
+    private static final java.util.concurrent.ExecutorService MODEL_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    public static void recognize(
+            android.content.Context context, Bitmap frame, Callback callback) {
+        List<CardRegion> regions = extract(frame);
         if (regions.isEmpty()) {
             callback.onComplete(new ArrayList<>());
             return;
         }
 
+        // The player-card positions remain fixed; ONNX classifies each fixed crop.
+        MODEL_EXECUTOR.execute(() -> {
+            try {
+                OnnxCardDetector detector = OnnxCardDetector.get(context);
+                List<CardTextResult> modelResults = new ArrayList<>();
+                boolean allFound = regions.size() == 2;
+                for (CardRegion region : regions) {
+                    String code = detector.detect(region.image);
+                    if (code == null) {
+                        allFound = false;
+                        break;
+                    }
+                    modelResults.add(new CardTextResult(
+                            region.position, region.bounds, code, null));
+                }
+                if (allFound && modelResults.size() == 2
+                        && !modelResults.get(0).text.equals(modelResults.get(1).text)) {
+                    releaseRegions(regions);
+                    android.util.Log.i("PokerCardModel",
+                            "ONNX распознал обе карты в фиксированных областях");
+                    callback.onComplete(modelResults);
+                    return;
+                }
+            } catch (Exception e) {
+                android.util.Log.w("PokerCardModel",
+                        "ONNX недоступен; переключаюсь на OCR", e);
+            }
+            recognizeWithOcr(regions, callback);
+        });
+    }
+
+    private static void recognizeWithOcr(
+            List<CardRegion> regions, Callback callback) {
         TextRecognizer recognizer = TextRecognition.getClient(
                 TextRecognizerOptions.DEFAULT_OPTIONS
         );
-
         List<CardTextResult> results = new ArrayList<>();
-
         processNext(regions, 0, results, recognizer, callback);
     }
 
