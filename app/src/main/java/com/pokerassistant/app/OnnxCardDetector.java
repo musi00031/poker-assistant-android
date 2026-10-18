@@ -212,7 +212,10 @@ final class OnnxCardDetector {
                         bestClass = c;
                     }
                 }
-                float requiredConfidence = preprocessingMode == 0 ? MIN_CONFIDENCE : 0.25f;
+                // Alternative tensor layouts can produce substantially lower calibrated scores.
+                // Keep a conservative floor, but do not discard every fallback candidate
+                // merely because its confidence is below 0.25.
+                float requiredConfidence = preprocessingMode == 0 ? MIN_CONFIDENCE : 0.015f;
                 if (bestClass < 0 || bestScore < requiredConfidence) continue;
 
                 float x1 = clamp((cx - w / 2f - left) / scale, 0f, source.getWidth());
