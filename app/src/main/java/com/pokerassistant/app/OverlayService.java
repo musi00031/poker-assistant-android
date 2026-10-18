@@ -29,7 +29,7 @@ public final class OverlayService extends Service {
     private TextView stateView;
     private WindowManager.LayoutParams params;
     private boolean expanded = false;
-    private static volatile String latestState = "Ожидание карт…\\nОткрой стол ClubGG";
+    private static volatile String latestState = "Ожидание карт…\nОткрой стол ClubGG";
 
     @Override public void onCreate() {
         super.onCreate();
