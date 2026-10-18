@@ -288,7 +288,7 @@ public class MainActivity extends Activity {
         cardSourceStatus.setTextColor(SILVER);
         cardSourceStatus.setTextSize(12);
         cardSourceStatus.setPadding(0, 0, 0, dp(8));
-        cardSourceStatus.setText("Источник карт: автоматическое распознавание");
+        cardSourceStatus.setText("Источник карт: ONNX · 52 класса + OCR резерв");
         cardPanel.addView(cardSourceStatus);
 
         Button autoCardToggle = makeButton("Автораспознавание: ВКЛ");
@@ -308,7 +308,7 @@ public class MainActivity extends Activity {
             if (cardSourceStatus != null) {
                 cardSourceStatus.setText(
                         autoCardMode
-                                ? "Источник карт: автоматическое распознавание"
+                                ? "Источник карт: ONNX · 52 класса + OCR резерв"
                                 : "Источник карт: ручной выбор"
                 );
             }
