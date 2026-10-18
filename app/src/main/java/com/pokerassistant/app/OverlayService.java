@@ -100,7 +100,7 @@ public final class OverlayService extends Service {
         panel.addView(heading);
 
         stateView = new TextView(this);
-        stateView.setText("Ожидание карт…\nОткрой стол ClubGG");
+        stateView.setText(latestState);
         stateView.setTextColor(Color.WHITE);
         stateView.setTextSize(14);
         stateView.setPadding(0, dp(8), 0, 0);
