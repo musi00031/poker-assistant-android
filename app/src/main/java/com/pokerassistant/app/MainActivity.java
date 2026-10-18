@@ -97,6 +97,12 @@ public class MainActivity extends Activity {
     private int pendingCardPairCount = 0;
     private static final int REQUIRED_CARD_CONFIRMATIONS = 3;
 
+    // Monte Carlo equity runs off the UI thread so automatic recognition cannot freeze the overlay.
+    private final java.util.concurrent.ExecutorService equityExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicInteger equityRequestId =
+            new java.util.concurrent.atomic.AtomicInteger();
+
 
     private void refreshDiagnosticsText() {
         if (ocrResultView == null) return;
@@ -755,85 +761,94 @@ public class MainActivity extends Activity {
     }
 
     private void calculateCards() {
-        try {
-            if (heroCards[0] == null || heroCards[1] == null) {
-                String message = "Сначала выбери две свои карты.";
-                cardResult.setText(message);
-                publishOverlayState(message);
-                return;
-            }
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(this::calculateCards);
+            return;
+        }
+        if (cardResult == null) return;
 
-            List<PokerEngine.Card> hero = new ArrayList<>();
-            hero.add(heroCards[0]);
-            hero.add(heroCards[1]);
-
-            List<PokerEngine.Card> board = new ArrayList<>();
-            boolean foundEmpty = false;
-
-            for (PokerEngine.Card card : boardCards) {
-                if (card == null) {
-                    foundEmpty = true;
-                } else {
-                    if (foundEmpty) {
-                        String message = "Заполняй общие карты по порядку: "
-                                + "сначала флоп, затем тёрн и ривер.";
-                        cardResult.setText(message);
-                        publishOverlayState(message);
-                        return;
-                    }
-                    board.add(card);
-                }
-            }
-
-            if (board.size() == 1 || board.size() == 2) {
-                String message = "Для борда выбери либо 0 карт, либо 3, 4 или 5.";
-                cardResult.setText(message);
-                publishOverlayState(message);
-                return;
-            }
-
-            String handText;
-
-            if (board.isEmpty()) {
-                handText = "Комбинация: пока не определена (префлоп)";
-            } else {
-                List<PokerEngine.Card> all = new ArrayList<>(hero);
-                all.addAll(board);
-                handText = "Комбинация: " +
-                        PokerEngine.describeHand(all);
-            }
-
-            PokerEngine.Result equity =
-                    PokerEngine.calculateEquity(hero, board, 3000);
-            LiveHandAnalyzer.Report liveReport =
-                    LiveHandAnalyzer.analyze(hero, board, equity.equity);
-
-            String overlaySummary = String.format(
-                    Locale.getDefault(),
-                    "%s\nЭквити: %.1f%%\n%s\n%s",
-                    liveReport.street, equity.equity,
-                    liveReport.hand, liveReport.advice);
-            publishOverlayState(overlaySummary);
-
-            cardResult.setText(String.format(
-                    Locale.getDefault(),
-                    "%s\n\n%s\n%s\n\nЭквити против случайной руки: %.1f%%" +
-                    "\nПобеды: %d · Ничьи: %d · Поражения: %d" +
-                    "\nРасчётов: %d\n\nВажно: это ориентир против случайной руки, не точный диапазон соперника.",
-                    liveReport.street,
-                    liveReport.hand,
-                    liveReport.draws,
-                    equity.equity,
-                    equity.wins,
-                    equity.ties,
-                    equity.losses,
-                    equity.simulations
-            ));
-} catch (Exception e) {
-            String message = "Ошибка расчёта: " + e.getMessage();
+        if (heroCards[0] == null || heroCards[1] == null) {
+            String message = "Ожидаю распознавания обеих карманных карт.";
             cardResult.setText(message);
             publishOverlayState(message);
-}
+            return;
+        }
+
+        final List<PokerEngine.Card> hero = new ArrayList<>();
+        hero.add(heroCards[0]);
+        hero.add(heroCards[1]);
+
+        final List<PokerEngine.Card> board = new ArrayList<>();
+        boolean foundEmpty = false;
+        for (PokerEngine.Card card : boardCards) {
+            if (card == null) {
+                foundEmpty = true;
+            } else {
+                if (foundEmpty) {
+                    String message = "Заполняй общие карты по порядку: сначала флоп, затем тёрн и ривер.";
+                    cardResult.setText(message);
+                    publishOverlayState(message);
+                    return;
+                }
+                board.add(card);
+            }
+        }
+
+        if (board.size() == 1 || board.size() == 2) {
+            String message = "Для борда выбери либо 0 карт, либо 3, 4 или 5.";
+            cardResult.setText(message);
+            publishOverlayState(message);
+            return;
+        }
+
+        java.util.Set<PokerEngine.Card> unique = new java.util.HashSet<>(hero);
+        unique.addAll(board);
+        if (unique.size() != hero.size() + board.size()) {
+            String message = "Найдены одинаковые карты. Расчёт остановлен — проверь распознавание.";
+            cardResult.setText(message);
+            publishOverlayState(message);
+            return;
+        }
+
+        final int requestId = equityRequestId.incrementAndGet();
+        final int simulations = 5000;
+        cardResult.setText("Проверяю руку и рассчитываю эквити… (" + simulations + " симуляций)");
+        publishOverlayState("Проверяю карты и рассчитываю эквити…");
+
+        equityExecutor.execute(() -> {
+            try {
+                PokerEngine.Result equity = PokerEngine.calculateEquity(
+                        hero, board, simulations, System.nanoTime());
+                LiveHandAnalyzer.Report report =
+                        LiveHandAnalyzer.analyze(hero, board, equity.equity);
+
+                String overlaySummary = String.format(
+                        Locale.getDefault(),
+                        "%s\nЭквити: %.1f%%\n%s\n%s",
+                        report.street, equity.equity, report.hand, report.advice);
+                String resultSummary = String.format(
+                        Locale.getDefault(),
+                        "%s\n\n%s\n%s\n\nЭквити против случайной руки: %.1f%%"
+                                + "\nПобеды: %d · Ничьи: %d · Поражения: %d"
+                                + "\nРасчётов: %d"
+                                + "\n\nЭто оценка против случайной руки, а не диапазона соперника.",
+                        report.street, report.hand, report.draws, equity.equity,
+                        equity.wins, equity.ties, equity.losses, equity.simulations);
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || requestId != equityRequestId.get()) return;
+                    cardResult.setText(resultSummary);
+                    publishOverlayState(overlaySummary);
+                });
+            } catch (Exception e) {
+                String message = "Ошибка расчёта: " + e.getMessage();
+                runOnUiThread(() -> {
+                    if (isFinishing() || requestId != equityRequestId.get()) return;
+                    cardResult.setText(message);
+                    publishOverlayState(message);
+                });
+            }
+        });
     }
 
     private void addDivider(LinearLayout root) {
