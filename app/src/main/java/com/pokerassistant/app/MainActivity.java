@@ -111,6 +111,8 @@ public class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
+        scroll.setFillViewport(true);
+        scroll.setSmoothScrollingEnabled(false);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -142,55 +144,20 @@ public class MainActivity extends Activity {
         addDivider(root);
 
         TextView section = new TextView(this);
-        section.setText("ПАРАМЕТРЫ РАЗДАЧИ");
+        section.setText("АВТОМАТИЧЕСКИЙ АНАЛИЗ РАЗДАЧИ");
         section.setTextColor(SILVER);
         section.setTextSize(12);
         section.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         root.addView(section);
 
-        potInput = addInput(root, "Текущий банк", "1000");
-        betInput = addInput(root, "Ставка соперника", "500");
-        callInput = addInput(root, "Сколько нужно доплатить", "500");
-        equityInput = addInput(root, "Твоя оценка эквити, %", "30");
+        TextView sectionInfo = new TextView(this);
+        sectionInfo.setText("Карты считываются с экрана; комбинация и эквити пересчитываются автоматически. Ручной расчёт банка и ввод эквити убраны.");
+        sectionInfo.setTextColor(MUTED);
+        sectionInfo.setTextSize(13);
+        sectionInfo.setPadding(0, dp(8), 0, dp(4));
+        root.addView(sectionInfo);
 
-        Button calculate = makeButton("РАССЧИТАТЬ");
-        LinearLayout.LayoutParams calculateParams =
-                new LinearLayout.LayoutParams(-1, dp(54));
-        calculateParams.setMargins(0, dp(20), 0, dp(12));
-        root.addView(calculate, calculateParams);
-
-        LinearLayout resultPanel = new LinearLayout(this);
-        resultPanel.setOrientation(LinearLayout.VERTICAL);
-        resultPanel.setPadding(dp(17), dp(17), dp(17), dp(17));
-        resultPanel.setBackgroundColor(PANEL);
-        root.addView(resultPanel);
-
-        TextView resultHeading = new TextView(this);
-        resultHeading.setText("РЕЗУЛЬТАТ");
-        resultHeading.setTextColor(SILVER);
-        resultHeading.setTextSize(12);
-        resultHeading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        resultPanel.addView(resultHeading);
-
-        result = new TextView(this);
-        result.setTextColor(WHITE);
-        result.setTextSize(16);
-        result.setLineSpacing(dp(5), 1f);
-        result.setPadding(0, dp(12), 0, dp(4));
-        resultPanel.addView(result);
-
-        TextView note = new TextView(this);
-        note.setText(
-                "Расчёт использует введённое эквити. Он не учитывает автоматически диапазоны соперников и будущие ставки.");
-        note.setTextColor(MUTED);
-        note.setTextSize(12);
-        note.setPadding(0, dp(14), 0, dp(4));
-        root.addView(note);
-
-        addDivider(root);
-
-
-        // CARD_PICKER_SECTION: выбор карманных и общих карт
+        // CARD_PICKER_SECTION: автоматическое распознавание карманных и общих карт
         addDivider(root);
 
         TextView cardsTitle = new TextView(this);
@@ -202,8 +169,7 @@ public class MainActivity extends Activity {
 
         TextView cardsInfo = new TextView(this);
         cardsInfo.setText(
-                "Выбери две свои карты, затем флоп, тёрн и ривер. " +
-                "Эквити рассчитывается против случайной руки соперника.");
+                "Распознавание работает автоматически. Дождись подтверждения карт в нескольких кадрах; при ошибке проверь, что карты полностью видны и стол не перекрыт.");
         cardsInfo.setTextColor(MUTED);
         cardsInfo.setTextSize(12);
         cardsInfo.setPadding(0, dp(8), 0, dp(12));
@@ -221,13 +187,14 @@ public class MainActivity extends Activity {
 
         for (int i = 0; i < 2; i++) {
             final int index = i;
-            Button b = makeButton("Выбрать");
+            Button b = makeButton("Ожидание");
             heroCardButtons[i] = b;
             LinearLayout.LayoutParams lp =
                     new LinearLayout.LayoutParams(0, dp(48), 1f);
             lp.setMargins(0, dp(6), dp(6), dp(12));
             heroRow.addView(b, lp);
-            b.setOnClickListener(v -> showCardPicker(true, index));
+            b.setClickable(false);
+            b.setFocusable(false);
         }
 
         TextView boardTitle = new TextView(this);
@@ -242,13 +209,14 @@ public class MainActivity extends Activity {
 
         for (int i = 0; i < 3; i++) {
             final int index = i;
-            Button b = makeButton("--");
+            Button b = makeButton("—");
             boardCardButtons[i] = b;
             LinearLayout.LayoutParams lp =
                     new LinearLayout.LayoutParams(0, dp(44), 1f);
             lp.setMargins(0, dp(6), dp(4), dp(6));
             boardRow1.addView(b, lp);
-            b.setOnClickListener(v -> showCardPicker(false, index));
+            b.setClickable(false);
+            b.setFocusable(false);
         }
 
         LinearLayout boardRow2 = new LinearLayout(this);
@@ -266,11 +234,12 @@ public class MainActivity extends Activity {
             b.setOnClickListener(v -> showCardPicker(false, index));
         }
 
-        Button evaluateCards = makeButton("РАССЧИТАТЬ КОМБИНАЦИЮ И ЭКВИТИ");
-        LinearLayout.LayoutParams evaluateParams =
-                new LinearLayout.LayoutParams(-1, dp(54));
-        evaluateParams.setMargins(0, dp(12), 0, dp(12));
-        root.addView(evaluateCards, evaluateParams);
+        TextView automaticMath = new TextView(this);
+        automaticMath.setText("Автоматическая математика включена");
+        automaticMath.setTextColor(MUTED);
+        automaticMath.setTextSize(12);
+        automaticMath.setPadding(0, dp(8), 0, dp(12));
+        root.addView(automaticMath);
 
         LinearLayout cardPanel = new LinearLayout(this);
         cardPanel.setOrientation(LinearLayout.VERTICAL);
@@ -285,28 +254,7 @@ public class MainActivity extends Activity {
         cardSourceStatus.setText("Источник карт: автоматическое распознавание");
         cardPanel.addView(cardSourceStatus);
 
-        Button autoCardToggle = makeButton("Автораспознавание: ВКЛ");
-        cardPanel.addView(
-                autoCardToggle,
-                new LinearLayout.LayoutParams(-1, dp(44))
-        );
-        autoCardToggle.setOnClickListener(v -> {
-            autoCardMode = !autoCardMode;
-            pendingCardPair = null;
-            pendingCardPairCount = 0;
-            autoCardToggle.setText(
-                    autoCardMode
-                            ? "Автораспознавание: ВКЛ"
-                            : "Автораспознавание: ВЫКЛ"
-            );
-            if (cardSourceStatus != null) {
-                cardSourceStatus.setText(
-                        autoCardMode
-                                ? "Источник карт: автоматическое распознавание"
-                                : "Источник карт: ручной выбор"
-                );
-            }
-        });
+        autoCardMode = true;
 
         cardResult = new TextView(this);
         cardResult.setTextColor(WHITE);
@@ -317,8 +265,7 @@ public class MainActivity extends Activity {
         evaluateCards.setOnClickListener(v -> calculateCards());
         refreshCardButtons();
         cardResult.setText(
-                "Выбери две карманные карты. " +
-                "Для расчёта на флопе укажи три общие карты.");
+                "Ожидание автоматического распознавания карманных и общих карт.\nПодсказка: для стабильного результата не закрывай карты оверлеем и дождись подтверждения.");
 
         TextView captureTitle = new TextView(this);
         captureTitle.setText("АНАЛИЗ ИЗОБРАЖЕНИЯ");
@@ -349,7 +296,7 @@ public class MainActivity extends Activity {
         root.addView(captureFramesView);
 
         TextView ocrTitle = new TextView(this);
-        ocrTitle.setText("РАСПОЗНАННЫЙ ТЕКСТ");
+        ocrTitle.setText("АНАЛИЗАТОР · СТАТУС И ПОДСКАЗКИ");
         ocrTitle.setTextColor(SILVER);
         ocrTitle.setTextSize(12);
         ocrTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -359,10 +306,13 @@ public class MainActivity extends Activity {
         ocrResultView = new TextView(this);
         ocrResultView.setText("Ожидание запуска распознавания.");
         ocrResultView.setTextColor(WHITE);
-        ocrResultView.setTextSize(14);
+        ocrResultView.setTextSize(13);
+        ocrResultView.setMaxLines(8);
+        ocrResultView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         ocrResultView.setPadding(dp(12), dp(12), dp(12), dp(12));
         ocrResultView.setBackgroundColor(PANEL);
-        root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, -2));
+        // Фиксированная высота не даёт растущему OCR-тексту сдвигать весь экран.
+        root.addView(ocrResultView, new LinearLayout.LayoutParams(-1, dp(180)));
 
         captureButton = makeButton("НАЧАТЬ ДЕМОНСТРАЦИЮ ЭКРАНА");
         root.addView(captureButton, new LinearLayout.LayoutParams(-1, dp(54)));
@@ -374,7 +324,6 @@ public class MainActivity extends Activity {
         privacy.setPadding(0, dp(10), 0, 0);
         root.addView(privacy);
 
-        calculate.setOnClickListener(v -> calculate());
         captureButton.setOnClickListener(v -> {
             if (captureActive) {
                 releaseCaptureResources();
