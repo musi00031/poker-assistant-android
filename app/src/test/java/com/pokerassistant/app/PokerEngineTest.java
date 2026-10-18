@@ -71,6 +71,29 @@ public class PokerEngineTest {
     }
 
     @Test
+    public void reportsFlushDrawWithEstimatedChance() {
+        LiveHandAnalyzer.Report report = LiveHandAnalyzer.analyze(
+                cards("As", "9s"), cards("2s", "7s", "Kd"), 50.0);
+        assertTrue(report.draws.contains("Флеш-дро: 9 карт"));
+        assertTrue(report.draws.contains("35%"));
+    }
+
+    @Test
+    public void reportsTwoStraightCompletionRanks() {
+        LiveHandAnalyzer.Report report = LiveHandAnalyzer.analyze(
+                cards("8c", "9d"), cards("6s", "7h", "2d"), 50.0);
+        assertTrue(report.draws.contains("стрит-дро с двумя вариантами"));
+    }
+
+    @Test
+    public void doesNotReportUnhittableDrawsOnRiver() {
+        LiveHandAnalyzer.Report report = LiveHandAnalyzer.analyze(
+                cards("8c", "9d"), cards("6s", "7h", "2d", "Qs", "Ac"), 50.0);
+        assertTrue(!report.draws.contains("стрит-дро"));
+        assertTrue(!report.draws.contains("Флеш-дро"));
+    }
+
+    @Test
     public void validatesStreetCardCount() {
         assertTrue(LiveHandAnalyzer.analyze(cards("As", "Ah"),
                 cards("2c", "3d"), 50.0).street.contains("Неполная"));
