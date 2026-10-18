@@ -50,6 +50,11 @@ final class OnnxCardDetector {
     }
 
     private static volatile OnnxCardDetector instance;
+    private static volatile String lastDiagnostic = "Модель ещё не запускалась";
+
+    static String getDiagnostic() {
+        return lastDiagnostic;
+    }
     private final OrtEnvironment environment;
     private final OrtSession session;
     private final String inputName;
@@ -74,7 +79,8 @@ final class OnnxCardDetector {
         }
         inputHeight = (int) shape[2];
         inputWidth = (int) shape[3];
-        Log.i(TAG, "Модель карт загружена: " + inputWidth + "x" + inputHeight);
+        lastDiagnostic = "Модель загружена; вход " + inputWidth + "x" + inputHeight;
+        Log.i(TAG, lastDiagnostic);
     }
 
     private static byte[] readAll(InputStream in) throws Exception {
@@ -129,7 +135,8 @@ final class OnnxCardDetector {
                 new long[]{1, 3, inputHeight, inputWidth});
              OrtSession.Result result = session.run(Collections.singletonMap(inputName, tensor))) {
             if (result.size() == 0 || !(result.get(0).getValue() instanceof float[][][])) {
-                Log.w(TAG, "Модель вернула неподдерживаемый результат: outputCount=" + result.size() + ", outputType=" + (result.size() == 0 ? "empty" : result.get(0).getValue().getClass().getName()));
+                lastDiagnostic = "ВЫХОД МОДЕЛИ: неподдерживаемый тип; outputs=" + result.size() + (result.size() == 0 ? "" : ", type=" + result.get(0).getValue().getClass().getName());
+                Log.w(TAG, lastDiagnostic);
                 return Collections.emptyList();
             }
 
@@ -144,12 +151,20 @@ final class OnnxCardDetector {
             } else if (matrix[0].length == channels) {
                 channelsFirst = false;
             } else {
-                Log.e(TAG, "Неожиданный формат выхода модели: "
-                        + matrix.length + "x" + matrix[0].length + "; ожидалось 56xN или Nx56");
+                lastDiagnostic = "ФОРМАТ МОДЕЛИ НЕ ПОДХОДИТ: " + matrix.length + "x" + matrix[0].length + ", ожидалось 56xN/Nx56";
+                Log.e(TAG, lastDiagnostic);
                 return Collections.emptyList();
             }
 
             int count = channelsFirst ? matrix[0].length : matrix.length;
+            float maxClassScore = 0f;
+            for (int i = 0; i < count; i++) {
+                for (int c = 0; c < LABELS.length; c++) {
+                    float score = value(matrix, channelsFirst, c + 4, i);
+                    if (finite(score) && score > maxClassScore) maxClassScore = score;
+                }
+            }
+            int validBoxes = 0;
             List<Detection> candidates = new ArrayList<>();
             for (int i = 0; i < count; i++) {
                 float cx = value(matrix, channelsFirst, 0, i);
@@ -165,6 +180,7 @@ final class OnnxCardDetector {
                     continue;
                 }
 
+                validBoxes++;
                 int bestClass = -1;
                 float bestScore = 0f;
                 for (int c = 0; c < LABELS.length; c++) {
@@ -201,14 +217,18 @@ final class OnnxCardDetector {
                     if (kept.size() >= MAX_DETECTIONS) break;
                 }
             }
-            Log.d(TAG, "Детектор: source=" + source.getWidth() + "x" + source.getHeight()
-                    + ", model=" + inputWidth + "x" + inputHeight
-                    + ", порог=" + MIN_CONFIDENCE + ", кандидатов после NMS=" + kept.size()
-                    + (candidates.isEmpty() ? "" : ", лучший=" + candidates.get(0).code
-                    + " confidence=" + candidates.get(0).confidence));
+            lastDiagnostic = "ONNX: кадр " + source.getWidth() + "x" + source.getHeight()
+                    + "; выход " + matrix.length + "x" + matrix[0].length
+                    + "; max-score=" + String.format(java.util.Locale.US, "%.3f", maxClassScore)
+                    + "; bbox=" + validBoxes + "; кандидаты=" + candidates.size()
+                    + "; после NMS=" + kept.size()
+                    + (candidates.isEmpty() ? "" : "; лучший=" + candidates.get(0).code
+                    + " (" + String.format(java.util.Locale.US, "%.3f", candidates.get(0).confidence) + ")");
+            Log.d(TAG, lastDiagnostic);
             return kept;
         } catch (Exception e) {
-            Log.e(TAG, "Не удалось распознать карты", e);
+            lastDiagnostic = "ОШИБКА ONNX: " + e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+            Log.e(TAG, lastDiagnostic, e);
             return Collections.emptyList();
         }
     }
