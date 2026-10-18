@@ -1452,7 +1452,9 @@ public class MainActivity extends Activity {
                                             "\n\nТВОИ КАРТЫ\n"
                                             + (fixedSummary.length() == 0
                                                 ? "Не удалось получить изображение карт. Перезапусти захват экрана."
-                                                : fixedSummary.toString());
+                                                : fixedSummary.toString())
+                                            + "\n\nДИАГНОСТИКА ONNX\n"
+                                            + OnnxCardDetector.getDiagnostic();
 
                                     runOnUiThread(() -> {
                                         if (ocrResultView == null) {
