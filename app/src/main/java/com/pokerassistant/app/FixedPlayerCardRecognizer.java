@@ -58,12 +58,23 @@ public final class FixedPlayerCardRecognizer {
 
         @Override
         public String toString() {
-            return position
-                    + " | область=" + bounds.flattenToString()
-                    + " | текст="
-                    + (error != null
-                        ? "ОШИБКА: " + error
-                        : (text.isEmpty() ? "<не распознан>" : text));
+            String label = "PLAYER_LEFT".equals(position) ? "Левая карта" : "Правая карта";
+            if (error != null) {
+                return label + ": не удалось прочитать изображение";
+            }
+            List<PokerEngine.Card> cards = PlayingCardTextParser.parse(text);
+            if (cards.size() == 1) {
+                PokerEngine.Card card = cards.get(0);
+                String ranks = "23456789TJQKA";
+                String rank = String.valueOf(ranks.charAt(card.rank - 2));
+                if ("T".equals(rank)) rank = "10";
+                String[] suits = {"♠", "♥", "♦", "♣"};
+                return label + ": " + rank + suits[card.suit];
+            }
+            if (text == null || text.trim().isEmpty()) {
+                return label + ": не найдена — проверь, что карта находится в своей области";
+            }
+            return label + ": не удалось уверенно определить карту";
         }
     }
 
@@ -79,8 +90,25 @@ public final class FixedPlayerCardRecognizer {
             return result;
         }
 
-        addRegion(result, frame, "PLAYER_LEFT", LEFT_CARD);
-        addRegion(result, frame, "PLAYER_RIGHT", RIGHT_CARD);
+        Bitmap workingFrame = frame;
+        boolean rotatedFrame = false;
+
+        // ClubGG can switch to landscape after capture starts. The saved reference
+        // screenshot is portrait, so normalize a landscape capture before cropping.
+        if (frame.getWidth() > frame.getHeight()) {
+            android.graphics.Matrix rotation = new android.graphics.Matrix();
+            rotation.postRotate(90f);
+            workingFrame = Bitmap.createBitmap(
+                    frame, 0, 0, frame.getWidth(), frame.getHeight(), rotation, true);
+            rotatedFrame = workingFrame != frame;
+        }
+
+        addRegion(result, workingFrame, "PLAYER_LEFT", LEFT_CARD);
+        addRegion(result, workingFrame, "PLAYER_RIGHT", RIGHT_CARD);
+
+        if (rotatedFrame && !workingFrame.isRecycled()) {
+            workingFrame.recycle();
+        }
 
         return result;
     }
@@ -130,20 +158,54 @@ public final class FixedPlayerCardRecognizer {
         result.add(new CardRegion(position, bounds, enlarged));
     }
 
-    public static void recognize(Bitmap frame, Callback callback) {
-        List<CardRegion> regions = extract(frame);
+    private static final java.util.concurrent.ExecutorService MODEL_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    public static void recognize(
+            android.content.Context context, Bitmap frame, Callback callback) {
+        List<CardRegion> regions = extract(frame);
         if (regions.isEmpty()) {
             callback.onComplete(new ArrayList<>());
             return;
         }
 
+        // The player-card positions remain fixed; ONNX classifies each fixed crop.
+        MODEL_EXECUTOR.execute(() -> {
+            try {
+                OnnxCardDetector detector = OnnxCardDetector.get(context);
+                List<CardTextResult> modelResults = new ArrayList<>();
+                boolean allFound = regions.size() == 2;
+                for (CardRegion region : regions) {
+                    String code = detector.detect(region.image);
+                    if (code == null) {
+                        allFound = false;
+                        break;
+                    }
+                    modelResults.add(new CardTextResult(
+                            region.position, region.bounds, code, null));
+                }
+                if (allFound && modelResults.size() == 2
+                        && !modelResults.get(0).text.equals(modelResults.get(1).text)) {
+                    releaseRegions(regions);
+                    android.util.Log.i("PokerCardModel",
+                            "ONNX распознал обе карты в фиксированных областях");
+                    callback.onComplete(modelResults);
+                    return;
+                }
+            } catch (Exception e) {
+                android.util.Log.w("PokerCardModel",
+                        "ONNX недоступен; переключаюсь на OCR", e);
+            }
+            recognizeWithOcr(regions, callback);
+        });
+    }
+
+    private static void recognizeWithOcr(
+            List<CardRegion> regions, Callback callback) {
         TextRecognizer recognizer = TextRecognition.getClient(
                 TextRecognizerOptions.DEFAULT_OPTIONS
         );
-
         List<CardTextResult> results = new ArrayList<>();
-
         processNext(regions, 0, results, recognizer, callback);
     }
 
