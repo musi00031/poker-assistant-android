@@ -90,11 +90,16 @@ public final class OverlayService extends Service {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(12), dp(10), dp(12), dp(10));
-        panel.setBackgroundColor(Color.rgb(20, 20, 24));
+        android.graphics.drawable.GradientDrawable panelBackground =
+                new android.graphics.drawable.GradientDrawable();
+        panelBackground.setColor(Color.rgb(15, 16, 21));
+        panelBackground.setCornerRadius(dp(16));
+        panelBackground.setStroke(dp(1), Color.rgb(160, 45, 58));
+        panel.setBackground(panelBackground);
 
         TextView heading = new TextView(this);
-        heading.setText("POKER ASSISTANT  ·  КОМПАКТНО");
-        heading.setTextColor(Color.rgb(210, 210, 220));
+        heading.setText("POKER ASSISTANT PRO  ·  LIVE");
+        heading.setTextColor(Color.rgb(225, 228, 236));\n        heading.setLetterSpacing(0.035f);\n        heading.setPadding(0, 0, 0, dp(3));
         heading.setTextSize(12);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         panel.addView(heading);
@@ -102,7 +107,7 @@ public final class OverlayService extends Service {
         stateView = new TextView(this);
         stateView.setText(latestState);
         stateView.setTextColor(Color.WHITE);
-        stateView.setTextSize(14);
+        stateView.setTextSize(14);\n        stateView.setLineSpacing(dp(3), 1.04f);
         stateView.setPadding(0, dp(8), 0, 0);
         panel.addView(stateView);
 
