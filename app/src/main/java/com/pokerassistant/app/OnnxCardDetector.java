@@ -182,6 +182,43 @@ final class OnnxCardDetector {
                     if (finite(coord)) { if (coord > maxCoord) maxCoord = coord; if (coord < minCoord) minCoord = coord; }
                 }
             }
+            // Track raw class peaks before any box/confidence filtering. This is
+            // critical for distinguishing a bad crop/preprocessing from a threshold issue.
+            float[] topScores = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+            int[] topClasses = {-1, -1, -1};
+            int[] topIndexes = {-1, -1, -1};
+            for (int i = 0; i < count; i++) {
+                float best = -Float.MAX_VALUE;
+                int bestClass = -1;
+                for (int c = 0; c < LABELS.length; c++) {
+                    float score = value(matrix, channelsFirst, c + 4, i);
+                    if (finite(score) && score > best) {
+                        best = score;
+                        bestClass = c;
+                    }
+                }
+                for (int rank = 0; rank < topScores.length; rank++) {
+                    if (best > topScores[rank]) {
+                        for (int move = topScores.length - 1; move > rank; move--) {
+                            topScores[move] = topScores[move - 1];
+                            topClasses[move] = topClasses[move - 1];
+                            topIndexes[move] = topIndexes[move - 1];
+                        }
+                        topScores[rank] = best;
+                        topClasses[rank] = bestClass;
+                        topIndexes[rank] = i;
+                        break;
+                    }
+                }
+            }
+            StringBuilder peakDiagnostic = new StringBuilder(" пики=");
+            for (int i = 0; i < topScores.length; i++) {
+                if (i > 0) peakDiagnostic.append(",");
+                peakDiagnostic.append(topClasses[i] >= 0 ? LABELS[topClasses[i]] : "?")
+                        .append("@").append(String.format(java.util.Locale.US, "%.8f", topScores[i]))
+                        .append("#").append(topIndexes[i]);
+            }
+
             int validBoxes = 0;
             List<Detection> candidates = new ArrayList<>();
             for (int i = 0; i < count; i++) {
@@ -249,7 +286,7 @@ final class OnnxCardDetector {
                     + "; coords-range=" + String.format(java.util.Locale.US, "%.2f..%.2f", minCoord, maxCoord)
                     + "; RGBavg=" + String.format(java.util.Locale.US, "%.0f/%.0f/%.0f", redSum/(double)plane, greenSum/(double)plane, blueSum/(double)plane)
                     + "; bbox=" + validBoxes + "; кандидаты=" + candidates.size()
-                    + "; после NMS=" + kept.size()
+                    + "; после NMS=" + kept.size() + peakDiagnostic
                     + (candidates.isEmpty() ? "" : "; лучший=" + candidates.get(0).code
                     + " (" + String.format(java.util.Locale.US, "%.3f", candidates.get(0).confidence) + ")");
             String[] preprocessingNames = {"RGB/255", "BGR/255", "RGB/0-255", "BGR/0-255"};
