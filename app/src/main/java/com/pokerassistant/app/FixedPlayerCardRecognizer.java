@@ -36,8 +36,11 @@ public final class FixedPlayerCardRecognizer {
     public static final int REFERENCE_WIDTH = 1220;
     public static final int REFERENCE_HEIGHT = 2712;
 
-    private static final Rect LEFT_CARD = new Rect(50, 1945, 170, 2140);
-    private static final Rect RIGHT_CARD = new Rect(160, 1945, 280, 2140);
+    // Fixed ClubGG card regions; keep them separate and include the full index.
+    private static final Rect LEFT_CARD = new Rect(42, 1928, 168, 2148);
+    private static final Rect RIGHT_CARD = new Rect(164, 1928, 290, 2148);
+    private static final float INDEX_WIDTH = 0.48f;
+    private static final float INDEX_HEIGHT = 0.48f;
 
     private static final Pattern RANK_PATTERN = Pattern.compile(
             "(?i)(?<![A-Z0-9])(10|[2-9TJQKA])(?![A-Z0-9])");
@@ -201,21 +204,23 @@ public final class FixedPlayerCardRecognizer {
         List<Bitmap> ownedViews = new ArrayList<>();
         views.add(region.image); // Original card image stays alive for suit-color analysis.
         try {
-            // The rank/suit index is normally concentrated in the top-left corner.
-            int w = region.image.getWidth();
-            int h = region.image.getHeight();
-            Bitmap corner = Bitmap.createBitmap(region.image, 0, 0,
-                    Math.max(1, Math.min(w, Math.round(w * 0.62f))),
-                    Math.max(1, Math.min(h, Math.round(h * 0.60f))));
+            // Focus OCR on the small top-left rank/suit index, not the whole card.
+            Bitmap corner = cropScaled(region.image, 0f, 0f, 0.52f, 0.50f, 3);
             views.add(corner);
             ownedViews.add(corner);
 
-            // A tighter view often prevents OCR from being distracted by the table.
-            Bitmap tight = Bitmap.createBitmap(region.image, 0, 0,
-                    Math.max(1, Math.min(w, Math.round(w * 0.42f))),
-                    Math.max(1, Math.min(h, Math.round(h * 0.43f))));
+            Bitmap tight = cropScaled(region.image, 0f, 0f,
+                    INDEX_WIDTH, INDEX_HEIGHT, 4);
             views.add(tight);
             ownedViews.add(tight);
+
+            Bitmap rankOnly = cropScaled(region.image, 0f, 0f, 0.48f, 0.30f, 5);
+            views.add(rankOnly);
+            ownedViews.add(rankOnly);
+
+            Bitmap suitOnly = cropScaled(region.image, 0f, 0.22f, 0.42f, 0.48f, 5);
+            views.add(suitOnly);
+            ownedViews.add(suitOnly);
         } catch (Exception e) {
             Log.w(TAG, region.position + ": unable to prepare corner crops", e);
         }
@@ -228,6 +233,25 @@ public final class FixedPlayerCardRecognizer {
                     + "; result=" + result.text + "; detector=" + OnnxCardDetector.getDiagnostic());
             processRegion(regions, regionIndex + 1, results, recognizer, callback);
         });
+    }
+
+    private static Bitmap cropScaled(Bitmap source, float leftFraction,
+                                      float topFraction, float rightFraction,
+                                      float bottomFraction, int scale) {
+        int left = Math.max(0, Math.min(source.getWidth() - 1,
+                Math.round(source.getWidth() * leftFraction)));
+        int top = Math.max(0, Math.min(source.getHeight() - 1,
+                Math.round(source.getHeight() * topFraction)));
+        int right = Math.max(left + 1, Math.min(source.getWidth(),
+                Math.round(source.getWidth() * rightFraction)));
+        int bottom = Math.max(top + 1, Math.min(source.getHeight(),
+                Math.round(source.getHeight() * bottomFraction)));
+        Bitmap crop = Bitmap.createBitmap(source, left, top, right - left, bottom - top);
+        Bitmap enlarged = Bitmap.createScaledBitmap(crop,
+                Math.max(1, crop.getWidth() * scale),
+                Math.max(1, crop.getHeight() * scale), true);
+        if (enlarged != crop) crop.recycle();
+        return enlarged;
     }
 
     private static void processView(CardRegion region, List<Bitmap> views,
