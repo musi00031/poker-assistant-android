@@ -109,7 +109,9 @@ final class BoardCardRecognizer {
 
     private static void recognizeByOcrAndColor(
             Bitmap crop, Callback callback, String modelDiagnostic) {
-        final float ocrScale = 1.5f;
+        // The board ranks are much smaller than the hero-card index; enlarge once
+        // at the OCR input boundary instead of feeding a low-resolution full table.
+        final float ocrScale = 2.0f;
         Bitmap scaledImage = null;
         TextRecognizer createdRecognizer = null;
         try {
