@@ -405,7 +405,8 @@ public final class FixedPlayerCardRecognizer {
 
     private static String findUnambiguousRank(List<String> readings) {
         Map<String, Integer> counts = new HashMap<>();
-        for (String text : readings) {
+        for (int readingIndex = 0; readingIndex < readings.size(); readingIndex++) {
+            String text = readings.get(readingIndex);
             Matcher matcher = RANK_PATTERN.matcher(text == null ? "" : text.toUpperCase());
             Set<String> inReading = new HashSet<>();
             while (matcher.find()) {
@@ -417,7 +418,11 @@ public final class FixedPlayerCardRecognizer {
             // multiple ranks are treated as noisy and do not decide the result.
             if (inReading.size() == 1) {
                 String rank = inReading.iterator().next();
-                counts.put(rank, counts.getOrDefault(rank, 0) + 1);
+                // View 3 is the clean rank-only crop and view 6 is its binary
+                // version. These high-signal views may be readable when the
+                // wider crops are not, so one such result counts as two votes.
+                int weight = (readingIndex == 3 || readingIndex == 6) ? 2 : 1;
+                counts.put(rank, counts.getOrDefault(rank, 0) + weight);
             }
         }
 
@@ -435,8 +440,8 @@ public final class FixedPlayerCardRecognizer {
             }
         }
 
-        // Require independent agreement from at least two crops; a lone OCR
-        // guess must never be converted into a playing card.
+        // Require either a clean rank-only crop or agreement from multiple
+        // weaker views. If different ranks compete, refuse the result.
         if (winner == null || best < 2 || best <= second) return null;
         return winner;
     }
