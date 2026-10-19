@@ -2,6 +2,7 @@ package com.pokerassistant.app;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.util.Log;
 
@@ -224,6 +225,14 @@ public final class FixedPlayerCardRecognizer {
             Bitmap suitOnly = cropScaled(region.image, 0f, 0.22f, 0.42f, 0.48f, 5);
             views.add(suitOnly);
             ownedViews.add(suitOnly);
+
+            // OCR-only monochrome passes keep the original colour crop intact.
+            Bitmap binaryCorner = cropBinaryScaled(region.image, 0f, 0f, 0.52f, 0.50f, 5);
+            views.add(binaryCorner);
+            ownedViews.add(binaryCorner);
+            Bitmap binaryRank = cropBinaryScaled(region.image, 0f, 0f, 0.48f, 0.30f, 7);
+            views.add(binaryRank);
+            ownedViews.add(binaryRank);
         } catch (Exception e) {
             Log.w(TAG, region.position + ": unable to prepare corner crops", e);
         }
@@ -254,6 +263,37 @@ public final class FixedPlayerCardRecognizer {
                 Math.max(1, crop.getWidth() * scale),
                 Math.max(1, crop.getHeight() * scale), true);
         if (enlarged != crop) crop.recycle();
+        return enlarged;
+    }
+
+    private static Bitmap cropBinaryScaled(Bitmap source, float leftFraction,
+                                             float topFraction, float rightFraction,
+                                             float bottomFraction, int scale) {
+        int left = Math.max(0, Math.min(source.getWidth() - 1,
+                Math.round(source.getWidth() * leftFraction)));
+        int top = Math.max(0, Math.min(source.getHeight() - 1,
+                Math.round(source.getHeight() * topFraction)));
+        int right = Math.max(left + 1, Math.min(source.getWidth(),
+                Math.round(source.getWidth() * rightFraction)));
+        int bottom = Math.max(top + 1, Math.min(source.getHeight(),
+                Math.round(source.getHeight() * bottomFraction)));
+        Bitmap crop = Bitmap.createBitmap(source, left, top, right - left, bottom - top);
+        Bitmap enlarged = Bitmap.createScaledBitmap(crop,
+                Math.max(1, crop.getWidth() * scale),
+                Math.max(1, crop.getHeight() * scale), true);
+        if (enlarged != crop) crop.recycle();
+
+        int width = enlarged.getWidth();
+        int height = enlarged.getHeight();
+        int[] pixels = new int[width * height];
+        enlarged.getPixels(pixels, 0, width, 0, 0, width, height);
+        for (int i = 0; i < pixels.length; i++) {
+            int p = pixels[i];
+            int gray = (Color.red(p) * 299 + Color.green(p) * 587
+                    + Color.blue(p) * 114) / 1000;
+            pixels[i] = gray < 218 ? Color.BLACK : Color.WHITE;
+        }
+        enlarged.setPixels(pixels, 0, width, 0, 0, width, height);
         return enlarged;
     }
 
