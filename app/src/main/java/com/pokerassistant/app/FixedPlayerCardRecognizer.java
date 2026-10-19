@@ -37,8 +37,8 @@ public final class FixedPlayerCardRecognizer {
     public static final int REFERENCE_HEIGHT = 2712;
 
     // Fixed ClubGG card regions; keep them separate and include the full index.
-    private static final Rect LEFT_CARD = new Rect(42, 1928, 168, 2148);
-    private static final Rect RIGHT_CARD = new Rect(164, 1928, 290, 2148);
+    private static final Rect LEFT_CARD = new Rect(42, 1928, 163, 2148);
+    private static final Rect RIGHT_CARD = new Rect(168, 1928, 290, 2148);
     private static final float INDEX_WIDTH = 0.48f;
     private static final float INDEX_HEIGHT = 0.48f;
 
@@ -362,7 +362,6 @@ public final class FixedPlayerCardRecognizer {
 
     private static String findUnambiguousRank(List<String> readings) {
         Map<String, Integer> counts = new HashMap<>();
-        Set<String> all = new HashSet<>();
         for (String text : readings) {
             Matcher matcher = RANK_PATTERN.matcher(text == null ? "" : text.toUpperCase());
             Set<String> inReading = new HashSet<>();
@@ -371,17 +370,32 @@ public final class FixedPlayerCardRecognizer {
                 String rank = "10".equals(value) ? "T" : value;
                 inReading.add(rank);
             }
-            // Only count the view if it yields one distinct rank.
+            // A single OCR view contributes at most one vote. Views that see
+            // multiple ranks are treated as noisy and do not decide the result.
             if (inReading.size() == 1) {
                 String rank = inReading.iterator().next();
                 counts.put(rank, counts.getOrDefault(rank, 0) + 1);
-                all.add(rank);
-            } else {
-                all.addAll(inReading);
             }
         }
-        if (all.size() != 1) return null;
-        return all.iterator().next();
+
+        String winner = null;
+        int best = 0;
+        int second = 0;
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            int votes = entry.getValue();
+            if (votes > best) {
+                second = best;
+                best = votes;
+                winner = entry.getKey();
+            } else if (votes > second) {
+                second = votes;
+            }
+        }
+
+        // Require independent agreement from at least two crops; a lone OCR
+        // guess must never be converted into a playing card.
+        if (winner == null || best < 2 || best <= second) return null;
+        return winner;
     }
 
     private static Character findSuitSymbol(List<String> readings) {
