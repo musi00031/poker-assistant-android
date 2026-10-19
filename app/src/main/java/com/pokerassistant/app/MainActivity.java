@@ -108,7 +108,9 @@ public class MainActivity extends Activity {
         if (ocrResultView == null) return;
         String model = OnnxCardDetector.getDiagnostic();
         if (model == null || model.trim().isEmpty()) model = "Модель ещё не дала результат";
-        if (model.length() > 190) model = "…" + model.substring(model.length() - 190);
+        // Keep score peaks and fallback-mode details visible; the old 190-char
+        // limit hid the only diagnostic that explained failed detections.
+        if (model.length() > 700) model = "…" + model.substring(model.length() - 700);
         ocrResultView.setText(latestPlayerDiagnostic + "\n\n"
                 + latestBoardDiagnostic + "\n\nONNX: " + model);
     }
