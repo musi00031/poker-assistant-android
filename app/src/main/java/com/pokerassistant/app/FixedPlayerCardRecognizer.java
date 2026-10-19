@@ -2,6 +2,7 @@ package com.pokerassistant.app;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.util.Log;
 
@@ -37,8 +38,10 @@ public final class FixedPlayerCardRecognizer {
     public static final int REFERENCE_HEIGHT = 2712;
 
     // Fixed ClubGG card regions; keep them separate and include the full index.
-    private static final Rect LEFT_CARD = new Rect(42, 1928, 163, 2148);
-    private static final Rect RIGHT_CARD = new Rect(168, 1928, 290, 2148);
+    // Calibrated to the confirmed 1220x2712 ClubGG reference frame.
+    // Keep the two cards independent; the small overlap prevents a gap at the seam.
+    private static final Rect LEFT_CARD = new Rect(50, 1945, 170, 2140);
+    private static final Rect RIGHT_CARD = new Rect(160, 1945, 280, 2140);
     private static final float INDEX_WIDTH = 0.48f;
     private static final float INDEX_HEIGHT = 0.48f;
 
@@ -137,13 +140,14 @@ public final class FixedPlayerCardRecognizer {
         if (!bounds.intersect(0, 0, frame.getWidth(), frame.getHeight())
                 || bounds.width() <= 0 || bounds.height() <= 0) return;
 
+        // Keep the camera pixels untouched here. Previously the entire crop was
+        // enlarged 5x and then the corner was enlarged again (up to 25x), which
+        // blurred the tiny rank/suit glyphs before OCR and ONNX ever saw them.
         Bitmap crop = Bitmap.createBitmap(frame, bounds.left, bounds.top,
                 bounds.width(), bounds.height());
-        Bitmap enlarged = Bitmap.createScaledBitmap(crop,
-                Math.max(1, crop.getWidth() * 5),
-                Math.max(1, crop.getHeight() * 5), true);
-        if (enlarged != crop) crop.recycle();
-        result.add(new CardRegion(position, bounds, enlarged));
+        Log.d(TAG, position + " ROI=" + bounds.flattenToString()
+                + " crop=" + crop.getWidth() + "x" + crop.getHeight());
+        result.add(new CardRegion(position, bounds, crop));
     }
 
     public static void recognize(Context context, Bitmap frame, Callback callback) {
@@ -221,6 +225,14 @@ public final class FixedPlayerCardRecognizer {
             Bitmap suitOnly = cropScaled(region.image, 0f, 0.22f, 0.42f, 0.48f, 5);
             views.add(suitOnly);
             ownedViews.add(suitOnly);
+
+            // OCR-only monochrome passes keep the original colour crop intact.
+            Bitmap binaryCorner = cropBinaryScaled(region.image, 0f, 0f, 0.52f, 0.50f, 5);
+            views.add(binaryCorner);
+            ownedViews.add(binaryCorner);
+            Bitmap binaryRank = cropBinaryScaled(region.image, 0f, 0f, 0.48f, 0.30f, 7);
+            views.add(binaryRank);
+            ownedViews.add(binaryRank);
         } catch (Exception e) {
             Log.w(TAG, region.position + ": unable to prepare corner crops", e);
         }
@@ -251,6 +263,37 @@ public final class FixedPlayerCardRecognizer {
                 Math.max(1, crop.getWidth() * scale),
                 Math.max(1, crop.getHeight() * scale), true);
         if (enlarged != crop) crop.recycle();
+        return enlarged;
+    }
+
+    private static Bitmap cropBinaryScaled(Bitmap source, float leftFraction,
+                                             float topFraction, float rightFraction,
+                                             float bottomFraction, int scale) {
+        int left = Math.max(0, Math.min(source.getWidth() - 1,
+                Math.round(source.getWidth() * leftFraction)));
+        int top = Math.max(0, Math.min(source.getHeight() - 1,
+                Math.round(source.getHeight() * topFraction)));
+        int right = Math.max(left + 1, Math.min(source.getWidth(),
+                Math.round(source.getWidth() * rightFraction)));
+        int bottom = Math.max(top + 1, Math.min(source.getHeight(),
+                Math.round(source.getHeight() * bottomFraction)));
+        Bitmap crop = Bitmap.createBitmap(source, left, top, right - left, bottom - top);
+        Bitmap enlarged = Bitmap.createScaledBitmap(crop,
+                Math.max(1, crop.getWidth() * scale),
+                Math.max(1, crop.getHeight() * scale), true);
+        if (enlarged != crop) crop.recycle();
+
+        int width = enlarged.getWidth();
+        int height = enlarged.getHeight();
+        int[] pixels = new int[width * height];
+        enlarged.getPixels(pixels, 0, width, 0, 0, width, height);
+        for (int i = 0; i < pixels.length; i++) {
+            int p = pixels[i];
+            int gray = (Color.red(p) * 299 + Color.green(p) * 587
+                    + Color.blue(p) * 114) / 1000;
+            pixels[i] = gray < 218 ? Color.BLACK : Color.WHITE;
+        }
+        enlarged.setPixels(pixels, 0, width, 0, 0, width, height);
         return enlarged;
     }
 
@@ -459,7 +502,10 @@ public final class FixedPlayerCardRecognizer {
         int chromaticMax = Math.max(red, Math.max(blue, green));
         int chromaticSecond = Math.max(Math.min(red, blue),
                 Math.max(Math.min(red, green), Math.min(blue, green)));
-        if (chromaticMax >= 8 && chromaticMax >= chromaticSecond * 1.30f) {
+        // Thresholds are based on pixel counts, so use a small-crop-aware floor.
+        int chromaticFloor = Math.max(3, Math.round((right - left) * (bottom - top) * 0.00018f));
+        int blackFloor = Math.max(5, Math.round((right - left) * (bottom - top) * 0.00030f));
+        if (chromaticMax >= chromaticFloor && chromaticMax >= chromaticSecond * 1.30f) {
             if (red == chromaticMax) return new SuitColor('h', "красный", red);
             if (blue == chromaticMax) return new SuitColor('d', "синий", blue);
             return new SuitColor('c', "зелёный", green);
@@ -467,7 +513,7 @@ public final class FixedPlayerCardRecognizer {
 
         // Black is ambiguous in a two-color deck. Only use it when there is
         // no detectable red/blue/green and a substantial dark glyph cluster.
-        if (chromaticMax < 5 && black >= 14) {
+        if (chromaticMax < chromaticFloor && black >= blackFloor) {
             return new SuitColor('s', "чёрный", black);
         }
         return null;
