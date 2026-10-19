@@ -302,12 +302,12 @@ final class BoardCardRecognizer {
         if (best.size() < MIN_BOARD_CARDS) return Collections.emptyList();
         List<CardCandidate> selected = new ArrayList<>(best);
 
-        // If extra OCR words fall on the same row, retain the strongest five card-like items.
-        if (selected.size() > MAX_BOARD_CARDS) {
-            selected.sort((a, b) -> Float.compare(b.confidence, a.confidence));
-            selected = new ArrayList<>(selected.subList(0, MAX_BOARD_CARDS));
-        }
+        // Do not silently truncate a noisy OCR row to five cards: that can turn
+        // table labels/buttons into a plausible but incorrect board.
+        if (selected.size() > MAX_BOARD_CARDS) return Collections.emptyList();
         selected.sort(Comparator.comparingDouble(c -> c.bounds.centerX()));
+
+        if (!isPlausibleOcrRow(selected, cropHeight)) return Collections.emptyList();
 
         List<PokerEngine.Card> cards = new ArrayList<>();
         for (CardCandidate candidate : selected) {
@@ -347,13 +347,70 @@ final class BoardCardRecognizer {
         }
         if (best.size() < MIN_BOARD_CARDS) return Collections.emptyList();
 
+        // A row with more than five detections is ambiguous; never choose an
+        // arbitrary confidence-ranked subset because that can mix in UI graphics.
+        if (best.size() > MAX_BOARD_CARDS) return Collections.emptyList();
+
         List<OnnxCardDetector.Detection> selected = new ArrayList<>(best);
-        if (selected.size() > MAX_BOARD_CARDS) {
-            selected.sort((a, b) -> Float.compare(b.confidence, a.confidence));
-            selected = new ArrayList<>(selected.subList(0, MAX_BOARD_CARDS));
-        }
         selected.sort(Comparator.comparingDouble(d -> d.bounds.centerX()));
+        if (!isPlausibleDetectionRow(selected, cropHeight)) return Collections.emptyList();
         return selected;
+    }
+
+    /**
+     * Rejects scattered OCR glyphs that happen to resemble cards. Board cards
+     * should form one horizontal sequence with comparable glyph heights and
+     * increasing x-centres; uncertain rows fall back to "not detected".
+     */
+    private static boolean isPlausibleOcrRow(List<CardCandidate> row, int cropHeight) {
+        if (row.size() < MIN_BOARD_CARDS || row.size() > MAX_BOARD_CARDS) return false;
+        int minHeight = Integer.MAX_VALUE;
+        int maxHeight = 0;
+        int minWidth = Integer.MAX_VALUE;
+        int maxWidth = 0;
+        int minY = Integer.MAX_VALUE;
+        int maxY = 0;
+        for (CardCandidate c : row) {
+            minHeight = Math.min(minHeight, c.bounds.height());
+            maxHeight = Math.max(maxHeight, c.bounds.height());
+            minWidth = Math.min(minWidth, c.bounds.width());
+            maxWidth = Math.max(maxWidth, c.bounds.width());
+            minY = Math.min(minY, c.bounds.centerY());
+            maxY = Math.max(maxY, c.bounds.centerY());
+        }
+        if (maxY - minY > Math.max(18, Math.round(cropHeight * 0.055f))) return false;
+        if (minHeight <= 0 || maxHeight > minHeight * 2.8f) return false;
+        if (minWidth <= 0 || maxWidth > minWidth * 4.5f) return false;
+        for (int i = 1; i < row.size(); i++) {
+            int gap = row.get(i).bounds.centerX() - row.get(i - 1).bounds.centerX();
+            if (gap <= 0) return false;
+            int glyphWidth = Math.max(row.get(i).bounds.width(), row.get(i - 1).bounds.width());
+            if (gap < Math.max(8, glyphWidth / 2)) return false;
+        }
+        return true;
+    }
+
+    private static boolean isPlausibleDetectionRow(
+            List<OnnxCardDetector.Detection> row, int cropHeight) {
+        if (row.size() < MIN_BOARD_CARDS || row.size() > MAX_BOARD_CARDS) return false;
+        float minHeight = Float.MAX_VALUE;
+        float maxHeight = 0f;
+        float minY = Float.MAX_VALUE;
+        float maxY = 0f;
+        for (OnnxCardDetector.Detection d : row) {
+            minHeight = Math.min(minHeight, d.bounds.height());
+            maxHeight = Math.max(maxHeight, d.bounds.height());
+            minY = Math.min(minY, d.bounds.centerY());
+            maxY = Math.max(maxY, d.bounds.centerY());
+        }
+        if (maxY - minY > Math.max(18f, cropHeight * 0.055f)) return false;
+        if (minHeight <= 0f || maxHeight > minHeight * 1.7f) return false;
+        for (int i = 1; i < row.size(); i++) {
+            float gap = row.get(i).bounds.centerX() - row.get(i - 1).bounds.centerX();
+            float minGap = Math.min(row.get(i).bounds.width(), row.get(i - 1).bounds.width());
+            if (gap <= 0f || gap < minGap * 0.45f) return false;
+        }
+        return true;
     }
 
     private static Bitmap extractBoardCrop(Bitmap frame) {
