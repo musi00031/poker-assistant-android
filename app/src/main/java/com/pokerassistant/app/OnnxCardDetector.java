@@ -297,24 +297,41 @@ final class OnnxCardDetector {
             lastDiagnostic += "; preprocessing=" + preprocessingNames[preprocessingMode];
             Log.d(TAG, lastDiagnostic);
 
-            if (kept.isEmpty() && preprocessingMode < 3) {
+            // Weak boxes used to suppress fallback even though hero cards
+            // require >=0.30 confidence. Retry other tensor preprocessing modes
+            // when the current mode finds no box OR only weak boxes.
+            if ((kept.isEmpty() || kept.get(0).confidence < 0.30f)
+                    && preprocessingMode < 3) {
                 int previousMode = preprocessingMode;
                 String previousDiagnostic = lastDiagnostic;
+                float previousBest = kept.isEmpty() ? 0f : kept.get(0).confidence;
                 preprocessingMode = previousMode + 1;
                 List<Detection> retry = detectAll(source);
                 String retryDiagnostic = lastDiagnostic;
                 preprocessingMode = previousMode;
 
-                if (!retry.isEmpty()) {
-                    lastDiagnostic = "Найдено альтернативной обработкой (" 
-                            + preprocessingNames[previousMode + 1] + "): " + retry.size()
-                            + " карт; " + retryDiagnostic;
+                float retryBest = retry.isEmpty() ? 0f : retry.get(0).confidence;
+                if (!retry.isEmpty() && retryBest > previousBest) {
+                    lastDiagnostic = "Лучшая альтернативная обработка ("
+                            + preprocessingNames[Math.min(3, previousMode + 1)] + "): "
+                            + retry.size() + " карт; " + retryDiagnostic;
                     Log.i(TAG, lastDiagnostic);
                     return retry;
                 }
-                lastDiagnostic = "Карты не найдены ни одним режимом обработки. "
-                        + previousDiagnostic + " | fallback: " + retryDiagnostic;
-                Log.w(TAG, lastDiagnostic);
+                if (kept.isEmpty() && !retry.isEmpty()) {
+                    lastDiagnostic = "Найдены карты альтернативной обработкой: "
+                            + retry.size() + "; " + retryDiagnostic;
+                    Log.i(TAG, lastDiagnostic);
+                    return retry;
+                }
+                if (kept.isEmpty()) {
+                    lastDiagnostic = "Карты не найдены ни одним режимом обработки. "
+                            + previousDiagnostic + " | fallback: " + retryDiagnostic;
+                    Log.w(TAG, lastDiagnostic);
+                } else {
+                    lastDiagnostic = previousDiagnostic + " | альтернативы не лучше ("
+                            + String.format(java.util.Locale.US, "%.3f", retryBest) + ")";
+                }
             }
             return kept;
         } catch (Exception e) {
