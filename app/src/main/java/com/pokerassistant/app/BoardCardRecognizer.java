@@ -109,66 +109,98 @@ final class BoardCardRecognizer {
 
     private static void recognizeByOcrAndColor(
             Bitmap crop, Callback callback, String modelDiagnostic) {
-        // The board ranks are much smaller than the hero-card index; enlarge once
-        // at the OCR input boundary instead of feeding a low-resolution full table.
-        final float ocrScale = 2.0f;
+        // Run two independent OCR views of the same fixed board ROI. Small card
+        // indices can disappear at 2x, while a high-contrast 3x view often helps.
+        // Both OCR passes map their boxes back to the original crop before suit-color
+        // sampling; all candidates are merged and spatially deduplicated.
+        final List<CardCandidate> merged = new ArrayList<>();
+        runOcrView(crop, 2.0f, false, merged, () ->
+                runOcrView(crop, 3.0f, true, merged, () -> {
+                    try {
+                        List<PokerEngine.Card> row = chooseOcrRow(merged, crop.getHeight());
+                        if (row.size() >= MIN_BOARD_CARDS
+                                && row.size() <= MAX_BOARD_CARDS
+                                && !hasDuplicates(row)) {
+                            callback.onComplete(row, "OCR multi-view (2× + 3× contrast): "
+                                    + format(row) + " · " + modelDiagnostic
+                                    + "; кандидаты=" + summarize(merged));
+                        } else {
+                            callback.onComplete(Collections.emptyList(),
+                                    "Борд пока не подтверждён: multi-view OCR не дал "
+                                            + "3–5 уникальных карт. " + modelDiagnostic
+                                            + "; OCR-кандидаты=" + summarize(merged));
+                        }
+                    } finally {
+                        recycle(crop);
+                    }
+                }));
+    }
+
+    private interface OcrPassDone {
+        void run();
+    }
+
+    private static void runOcrView(
+            Bitmap crop, float scale, boolean highContrast,
+            List<CardCandidate> merged, OcrPassDone done) {
         Bitmap scaledImage = null;
-        TextRecognizer createdRecognizer = null;
+        TextRecognizer recognizer = null;
         try {
             scaledImage = Bitmap.createScaledBitmap(
                     crop,
-                    Math.max(1, Math.round(crop.getWidth() * ocrScale)),
-                    Math.max(1, Math.round(crop.getHeight() * ocrScale)),
+                    Math.max(1, Math.round(crop.getWidth() * scale)),
+                    Math.max(1, Math.round(crop.getHeight() * scale)),
                     true);
+            if (highContrast) {
+                int width = scaledImage.getWidth();
+                int height = scaledImage.getHeight();
+                int[] pixels = new int[width * height];
+                scaledImage.getPixels(pixels, 0, width, 0, 0, width, height);
+                for (int i = 0; i < pixels.length; i++) {
+                    int color = pixels[i];
+                    int r = (color >> 16) & 255;
+                    int g = (color >> 8) & 255;
+                    int b = color & 255;
+                    int gray = (r * 299 + g * 587 + b * 114) / 1000;
+                    // Gentle contrast stretch; avoid hard thresholding thin rank strokes.
+                    int enhanced = Math.max(0, Math.min(255,
+                            Math.round((gray - 128) * 1.45f + 128)));
+                    pixels[i] = android.graphics.Color.rgb(enhanced, enhanced, enhanced);
+                }
+                scaledImage.setPixels(pixels, 0, width, 0, 0, width, height);
+            }
             final Bitmap ocrImage = scaledImage;
-            createdRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-            final TextRecognizer recognizer = createdRecognizer;
-            recognizer.process(InputImage.fromBitmap(ocrImage, 0))
+            recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+            final TextRecognizer activeRecognizer = recognizer;
+            activeRecognizer.process(InputImage.fromBitmap(ocrImage, 0))
                     .addOnSuccessListener(text -> {
                         try {
-                            List<CardCandidate> candidates =
-                                    extractOcrCandidates(crop, text, ocrScale);
-                            List<PokerEngine.Card> row = chooseOcrRow(candidates, crop.getHeight());
-                            if (row.size() >= MIN_BOARD_CARDS
-                                    && row.size() <= MAX_BOARD_CARDS
-                                    && !hasDuplicates(row)) {
-                                callback.onComplete(row, "OCR+цвет (увеличение "
-                                        + ocrScale + "×): " + format(row)
-                                        + " · " + modelDiagnostic);
-                            } else {
-                                callback.onComplete(Collections.emptyList(),
-                                        "Борд пока не подтверждён: ONNX и OCR/цвет не дали "
-                                                + "3–5 уникальных карт. " + modelDiagnostic
-                                                + "; OCR-кандидаты=" + summarize(candidates));
+                            List<CardCandidate> found = extractOcrCandidates(crop, text, scale);
+                            for (CardCandidate candidate : found) {
+                                addCandidate(merged, candidate.card, candidate.bounds,
+                                        candidate.confidence);
                             }
+                            Log.d(TAG, "OCR view " + scale + "x contrast=" + highContrast
+                                    + " candidates=" + found.size());
                         } catch (Exception e) {
-                            Log.e(TAG, "Ошибка OCR fallback общих карт", e);
-                            callback.onComplete(Collections.emptyList(),
-                                    "Ошибка OCR fallback: " + e.getClass().getSimpleName()
-                                            + "; " + modelDiagnostic);
+                            Log.w(TAG, "OCR view failed at " + scale + "x", e);
                         } finally {
-                            recognizer.close();
+                            activeRecognizer.close();
                             if (ocrImage != crop) recycle(ocrImage);
-                            recycle(crop);
+                            done.run();
                         }
                     })
                     .addOnFailureListener(error -> {
-                        Log.w(TAG, "ML Kit не прочитал область общих карт", error);
-                        recognizer.close();
+                        Log.w(TAG, "ML Kit OCR view failed at " + scale + "x", error);
+                        activeRecognizer.close();
                         if (ocrImage != crop) recycle(ocrImage);
-                        recycle(crop);
-                        callback.onComplete(Collections.emptyList(),
-                                "OCR/цвет не сработал: " + error.getClass().getSimpleName()
-                                        + "; " + modelDiagnostic);
+                        done.run();
                     });
         } catch (Exception e) {
-            Log.e(TAG, "Не удалось запустить ML Kit для общих карт", e);
+            Log.w(TAG, "Could not start OCR view at " + scale + "x", e);
             if (scaledImage != null && scaledImage != crop) recycle(scaledImage);
-            if (createdRecognizer != null) createdRecognizer.close();
-            recycle(crop);
-            callback.onComplete(Collections.emptyList(),
-                    "Не удалось запустить OCR: " + e.getClass().getSimpleName()
-                            + "; " + modelDiagnostic);
+            if (recognizer != null) recognizer.close();
+            done.run();
         }
     }
 
