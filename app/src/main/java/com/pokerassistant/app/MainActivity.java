@@ -172,6 +172,15 @@ public class MainActivity extends Activity {
         subtitle.setTextSize(14);
         root.addView(subtitle);
 
+        Button calibrateButton = makeButton("✦  КАЛИБРОВКА ОБЛАСТЕЙ ЭКРАНА");
+        calibrateButton.setTextColor(Color.rgb(7, 12, 22));
+        calibrateButton.setBackground(roundedPanel(Color.rgb(65, 230, 255), Color.rgb(65, 230, 255), 14));
+        LinearLayout.LayoutParams calibrateLp = new LinearLayout.LayoutParams(-1, dp(52));
+        calibrateLp.setMargins(0, dp(14), 0, dp(10));
+        root.addView(calibrateButton, calibrateLp);
+        calibrateButton.setOnClickListener(v ->
+                startActivity(new Intent(this, CalibrationActivity.class)));
+
         addDivider(root);
 
 
