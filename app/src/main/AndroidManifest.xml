@@ -22,6 +22,12 @@
 
         </activity>
 
+        <activity android:name=".CalibrationActivity" android:exported="false" />
+
+        <activity android:name=".ManualLearningActivity" android:exported="false" />
+
+        <service android:name=".CalibrationOverlayService" android:exported="false" />
+
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"

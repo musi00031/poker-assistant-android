@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     private TextView cardResult;
     private TextView cardSourceStatus;
     private boolean autoCardMode = true;
+    private boolean manualLearningEnabled = false;
     private boolean fixedCardOcrInProgress = false;
     private String latestPlayerDiagnostic = "ТВОИ КАРТЫ\nОжидание распознавания";
     private String latestBoardDiagnostic = "ОБЩИЕ КАРТЫ\nОжидание распознавания";
@@ -106,13 +107,12 @@ public class MainActivity extends Activity {
 
     private void refreshDiagnosticsText() {
         if (ocrResultView == null) return;
-        String model = OnnxCardDetector.getDiagnostic();
-        if (model == null || model.trim().isEmpty()) model = "Модель ещё не дала результат";
-        // Keep score peaks and fallback-mode details visible; the old 190-char
-        // limit hid the only diagnostic that explained failed detections.
-        if (model.length() > 700) model = "…" + model.substring(model.length() - 700);
+        // V2 does not invoke the old detector. Keep the visible status honest:
+        // the app now uses calibrated image crops + independent OCR/color analysis.
         ocrResultView.setText(latestPlayerDiagnostic + "\n\n"
-                + latestBoardDiagnostic + "\n\nONNX: " + model);
+                + latestBoardDiagnostic + "\n\nРАСПОЗНАВАТЕЛЬ V2: старый ONNX отключён"
+                + "\nРежим: калиброванные области + OCR/анализ цвета"
+                + "\nНеподтверждённые карты не должны приниматься как достоверные.");
     }
 
     private int dp(float value) {
@@ -171,6 +171,24 @@ public class MainActivity extends Activity {
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(14);
         root.addView(subtitle);
+
+        Button calibrateButton = makeButton("✦  КАЛИБРОВКА ОБЛАСТЕЙ ЭКРАНА");
+        calibrateButton.setTextColor(Color.rgb(7, 12, 22));
+        calibrateButton.setBackground(roundedPanel(Color.rgb(65, 230, 255), Color.rgb(65, 230, 255), 14));
+        LinearLayout.LayoutParams calibrateLp = new LinearLayout.LayoutParams(-1, dp(52));
+        calibrateLp.setMargins(0, dp(14), 0, dp(10));
+        root.addView(calibrateButton, calibrateLp);
+        calibrateButton.setOnClickListener(v ->
+                startActivity(new Intent(this, CalibrationActivity.class)));
+
+        Button learningButton = makeButton("✦  РУЧНОЕ ИЗУЧЕНИЕ И ПРОВЕРКА КАРТ");
+        learningButton.setTextColor(WHITE);
+        learningButton.setBackground(roundedPanel(PANEL, Color.rgb(65, 230, 255), 14));
+        LinearLayout.LayoutParams learningLp = new LinearLayout.LayoutParams(-1, dp(50));
+        learningLp.setMargins(0, 0, 0, dp(10));
+        root.addView(learningButton, learningLp);
+        learningButton.setOnClickListener(v ->
+                startActivity(new Intent(this, ManualLearningActivity.class)));
 
         addDivider(root);
 
@@ -391,6 +409,49 @@ public class MainActivity extends Activity {
         setContentView(scroll);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        android.content.SharedPreferences p = getSharedPreferences("manual_learning_v1", MODE_PRIVATE);
+        boolean enabled = p.getBoolean("enabled", false);
+        manualLearningEnabled = enabled;
+        if (enabled && heroCardButtons[0] != null) {
+            heroCards[0] = parseSavedManualCard(p.getString("card_0", ""));
+            heroCards[1] = parseSavedManualCard(p.getString("card_1", ""));
+            for (int i=0;i<boardCards.length;i++) {
+                boardCards[i] = parseSavedManualCard(p.getString("card_"+(i+2), ""));
+            }
+            pendingCardPair = null;
+            pendingCardPairCount = 0;
+            pendingBoardKey = null;
+            pendingBoardCount = 0;
+            refreshCardButtons();
+            if (cardSourceStatus != null) cardSourceStatus.setText("РУЧНАЯ РАЗМЕТКА АКТИВНА");
+            latestPlayerDiagnostic = "ТВОИ КАРТЫ\\nРучное подтверждение: "
+                    + cardLabel(heroCards[0]) + " " + cardLabel(heroCards[1]);
+            StringBuilder boardText = new StringBuilder("ОБЩИЕ КАРТЫ\\n");
+            for (PokerEngine.Card card : boardCards) if (card != null) boardText.append(cardLabel(card)).append(' ');
+            latestBoardDiagnostic = boardText.toString().trim();
+            refreshDiagnosticsText();
+            calculateCards();
+        } else if (!enabled) {
+            boolean wasManual = manualLearningEnabled;
+            manualLearningEnabled = false;
+            if (wasManual) {
+                for (int i=0;i<heroCards.length;i++) heroCards[i] = null;
+                for (int i=0;i<boardCards.length;i++) boardCards[i] = null;
+                refreshCardButtons();
+                if (cardSourceStatus != null) cardSourceStatus.setText("Авторежим включён");
+                calculateCards();
+            }
+        }
+    }
+
+    private PokerEngine.Card parseSavedManualCard(String code) {
+        if (code == null || code.trim().isEmpty()) return null;
+        try { return PokerEngine.Card.parse(code); }
+        catch (IllegalArgumentException ignored) { return null; }
+    }
 
     // CARD_PICKER_SECTION: ручной выбор карт
     private String cardLabel(PokerEngine.Card card) {
@@ -419,6 +480,10 @@ public class MainActivity extends Activity {
             return;
         }
 
+        if (manualLearningEnabled) {
+            android.util.Log.d("PokerCardOCR", "Ручная разметка активна — автоматические карты не перезаписывают её");
+            return;
+        }
         if (!autoCardMode || results == null || results.isEmpty()) {
             pendingCardPair = null;
             pendingCardPairCount = 0;
@@ -588,7 +653,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> applyRecognizedBoardCards(detected, diagnostic));
             return;
         }
-        if (!autoCardMode) return;
+        if (!autoCardMode || manualLearningEnabled) return;
         if (detected == null || detected.size() < 3 || detected.size() > 5) {
             android.util.Log.d("PokerBoardModel", diagnostic == null
                     ? "Общие карты не подтверждены" : diagnostic);

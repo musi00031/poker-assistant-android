@@ -40,8 +40,11 @@ public final class FixedPlayerCardRecognizer {
     // Fixed ClubGG card regions; keep them separate and include the full index.
     // Calibrated to the confirmed 1220x2712 ClubGG reference frame.
     // Keep the two cards independent; the small overlap prevents a gap at the seam.
-    private static final Rect LEFT_CARD = new Rect(50, 1945, 170, 2140);
-    private static final Rect RIGHT_CARD = new Rect(160, 1945, 280, 2140);
+    // Geometry measured from the supplied 691x1536 ClubGG screenshot and
+    // normalized to the 1220x2712 reference canvas (same aspect ratio).
+    // Tight crops cover the visible rank+suit corner of each overlapping hero card.
+    private static final Rect LEFT_CARD = new Rect(76, 1988, 190, 2180);
+    private static final Rect RIGHT_CARD = new Rect(166, 1988, 286, 2180);
     private static final float INDEX_WIDTH = 0.48f;
     private static final float INDEX_HEIGHT = 0.48f;
 
@@ -108,7 +111,9 @@ public final class FixedPlayerCardRecognizer {
         void onComplete(List<CardTextResult> results);
     }
 
-    public static List<CardRegion> extract(Bitmap frame) {
+    public static List<CardRegion> extract(Bitmap frame) { return extract(null, frame); }
+
+    private static List<CardRegion> extract(Context context, Bitmap frame) {
         List<CardRegion> result = new ArrayList<>();
         if (frame == null || frame.isRecycled()
                 || frame.getWidth() <= 0 || frame.getHeight() <= 0) return result;
@@ -123,8 +128,10 @@ public final class FixedPlayerCardRecognizer {
             rotatedFrame = workingFrame != frame;
         }
 
-        addRegion(result, workingFrame, "PLAYER_LEFT", LEFT_CARD);
-        addRegion(result, workingFrame, "PLAYER_RIGHT", RIGHT_CARD);
+        Rect left = context == null ? LEFT_CARD : CalibrationRegions.get(context, "hero_left", LEFT_CARD, REFERENCE_WIDTH, REFERENCE_HEIGHT);
+        Rect right = context == null ? RIGHT_CARD : CalibrationRegions.get(context, "hero_right", RIGHT_CARD, REFERENCE_WIDTH, REFERENCE_HEIGHT);
+        addRegion(result, workingFrame, "PLAYER_LEFT", left);
+        addRegion(result, workingFrame, "PLAYER_RIGHT", right);
         if (rotatedFrame && !workingFrame.isRecycled()) workingFrame.recycle();
         return result;
     }
@@ -151,39 +158,18 @@ public final class FixedPlayerCardRecognizer {
     }
 
     public static void recognize(Context context, Bitmap frame, Callback callback) {
-        List<CardRegion> regions = extract(frame);
+        List<CardRegion> regions = extract(context, frame);
         if (regions.size() != 2) {
             releaseRegions(regions);
             callback.onComplete(new ArrayList<>());
             return;
         }
 
-        MODEL_EXECUTOR.execute(() -> {
-            boolean modelAccepted = false;
-            try {
-                OnnxCardDetector detector = OnnxCardDetector.get(context);
-                List<CardTextResult> modelResults = new ArrayList<>();
-                for (CardRegion region : regions) {
-                    String code = detector.detect(region.image);
-                    if (code == null) {
-                        modelResults.clear();
-                        break;
-                    }
-                    modelResults.add(new CardTextResult(region.position, region.bounds,
-                            code, null, "ONNX"));
-                }
-                if (modelResults.size() == 2
-                        && !modelResults.get(0).text.equals(modelResults.get(1).text)) {
-                    modelAccepted = true;
-                    releaseRegions(regions);
-                    Log.i(TAG, "ONNX confidently recognized both fixed hero-card regions");
-                    callback.onComplete(modelResults);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "ONNX unavailable; using multi-view OCR and suit-color fallback", e);
-            }
-            if (!modelAccepted) recognizeWithOcr(regions, callback);
-        });
+        // V2 recognition path: deliberately do not load/call the old YOLO ONNX
+        // detector. It returned near-zero class scores on real ClubGG captures.
+        // Run the independent crop/OCR/color pipeline only.
+        Log.i(TAG, "V2 active: fixed calibrated crops; legacy ONNX detector disabled");
+        MODEL_EXECUTOR.execute(() -> recognizeWithOcr(regions, callback));
     }
 
     private static void recognizeWithOcr(List<CardRegion> regions, Callback callback) {
@@ -344,8 +330,26 @@ public final class FixedPlayerCardRecognizer {
 
         if (exactCode != null) {
             if (rank == null || exactCode.charAt(0) == rank.charAt(0)) {
+                // OCR can mistake a tiny suit glyph for a Latin letter (especially
+                // C). On four-colour ClubGG faces, independently inspect the card
+                // index pixels and let a strong red/blue/green signal correct OCR.
+                SuitColor visual = classifySuitColor(region.image);
+                char ocrSuit = exactCode.charAt(1);
+                if (visual != null && visual.code != 's'
+                        && visual.code != ocrSuit
+                        && (visual.code == 'h' || visual.code == 'd' || visual.code == 'c')) {
+                    String corrected = exactCode.substring(0, 1) + visual.code;
+                    Log.i(TAG, region.position + " suit corrected by pixel color: "
+                            + exactCode + " -> " + corrected + " (" + visual.name
+                            + ", score=" + visual.score + ")");
+                    return new CardTextResult(region.position, region.bounds,
+                            corrected, null, raw + "; масть скорректирована по цвету "
+                                    + visual.name + "; OCR=" + exactCode);
+                }
                 return new CardTextResult(region.position, region.bounds,
-                        exactCode, null, raw + "; карта из OCR");
+                        exactCode, null, raw + "; карта из OCR"
+                                + (visual == null ? "; цвет не подтверждён"
+                                : "; цвет=" + visual.name + "/" + visual.score));
             }
         }
 

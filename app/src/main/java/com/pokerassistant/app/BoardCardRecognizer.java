@@ -25,7 +25,10 @@ final class BoardCardRecognizer {
     private static final String TAG = "PokerBoardModel";
     private static final int REF_W = 1220;
     private static final int REF_H = 2712;
-    private static final Rect BOARD_ROI = new Rect(32, 704, 1136, 1824);
+    // Measured from the supplied ClubGG screenshot: only the 3–5 community-card
+    // row is included, excluding pot text, chips, player panels and table logo.
+    // Normalized to the 1220x2712 reference canvas.
+    private static final Rect BOARD_ROI = new Rect(228, 1248, 704, 1498);
     private static final float ROW_Y_TOLERANCE = 0.10f;
     private static final int MIN_BOARD_CARDS = 3;
     private static final int MAX_BOARD_CARDS = 5;
@@ -53,45 +56,17 @@ final class BoardCardRecognizer {
     private BoardCardRecognizer() {}
 
     static void recognize(Context context, Bitmap frame, Callback callback) {
-        Bitmap crop = extractBoardCrop(frame);
+        Bitmap crop = extractBoardCrop(context, frame);
         if (crop == null) {
             callback.onComplete(Collections.emptyList(), "Область общих карт вне кадра");
             return;
         }
 
-        EXECUTOR.execute(() -> {
-            boolean cropTransferredToOcr = false;
-            try {
-                OnnxCardDetector detector = OnnxCardDetector.get(context);
-                List<OnnxCardDetector.Detection> detections = detector.detectAll(crop);
-                List<OnnxCardDetector.Detection> row = chooseBoardRow(
-                        detections, crop.getHeight());
-                List<PokerEngine.Card> cards = parseDetections(row);
-                boolean strongModelRow = cards.size() >= MIN_BOARD_CARDS
-                        && cards.size() <= MAX_BOARD_CARDS
-                        && !hasDuplicates(cards)
-                        && row.stream().allMatch(d -> d.confidence >= MIN_MODEL_CONFIDENCE);
-
-                if (strongModelRow) {
-                    String summary = "ONNX подтверждён: " + format(cards);
-                    Log.i(TAG, summary);
-                    callback.onComplete(cards, summary);
-                } else {
-                    String modelDiagnostic = "ONNX недостаточно уверен (карт="
-                            + cards.size() + ", пики: " + OnnxCardDetector.getDiagnostic() + ")";
-                    cropTransferredToOcr = true;
-                    recognizeByOcrAndColor(crop, callback, modelDiagnostic);
-                }
-            } catch (Exception e) {
-                String failure = "ONNX: " + e.getClass().getSimpleName()
-                        + "; пробую OCR/цвет";
-                Log.e(TAG, "Ошибка ONNX; включаю OCR fallback", e);
-                cropTransferredToOcr = true;
-                recognizeByOcrAndColor(crop, callback, failure);
-            } finally {
-                if (!cropTransferredToOcr && !crop.isRecycled()) crop.recycle();
-            }
-        });
+        // V2: disable the old YOLO/ONNX detector. On actual ClubGG frames it
+        // produced virtually zero class scores; analyze the crop directly instead.
+        Log.i(TAG, "V2 active: legacy ONNX disabled; running multi-view OCR/color pipeline");
+        EXECUTOR.execute(() -> recognizeByOcrAndColor(
+                crop, callback, "V2: старый ONNX отключён"));
     }
 
     private static List<PokerEngine.Card> parseDetections(
@@ -233,7 +208,26 @@ final class BoardCardRecognizer {
 
             List<PokerEngine.Card> exact = PlayingCardTextParser.parse(item.text);
             if (exact.size() == 1) {
-                addCandidate(candidates, exact.get(0), bounds, 0.98f);
+                PokerEngine.Card exactCard = exact.get(0);
+                // Validate OCR's Latin suit letter against the pixels around the
+                // tiny rank/suit index. A strong red/blue/green signal can correct
+                // C/S/H/D OCR confusions; black alone cannot separate spades/clubs.
+                String visualSuit = CardImageRecognizer.detectSuitColor(
+                        crop, expand(bounds, 1.35f, crop.getWidth(), crop.getHeight()));
+                char ocrSuit = exactCard.toString().charAt(1);
+                if (visualSuit != null && !visualSuit.isEmpty()
+                        && visualSuit.charAt(0) != 's'
+                        && visualSuit.charAt(0) != ocrSuit
+                        && ("h".equals(visualSuit) || "d".equals(visualSuit)
+                            || "c".equals(visualSuit))) {
+                    try {
+                        exactCard = PokerEngine.Card.parse(
+                                exactCard.toString().substring(0, 1) + visualSuit);
+                        Log.i(TAG, "Board suit corrected by pixel color: "
+                                + item.text + " -> " + exactCard);
+                    } catch (IllegalArgumentException ignored) {}
+                }
+                addCandidate(candidates, exactCard, bounds, 0.98f);
                 continue;
             }
 
@@ -447,7 +441,7 @@ final class BoardCardRecognizer {
         return true;
     }
 
-    private static Bitmap extractBoardCrop(Bitmap frame) {
+    private static Bitmap extractBoardCrop(Context context, Bitmap frame) {
         if (frame == null || frame.isRecycled()
                 || frame.getWidth() < 2 || frame.getHeight() < 2) return null;
 
@@ -461,11 +455,12 @@ final class BoardCardRecognizer {
             rotated = working != frame;
         }
 
+        Rect selected = CalibrationRegions.get(context, "board", BOARD_ROI, REF_W, REF_H);
         float sx = working.getWidth() / (float) REF_W;
         float sy = working.getHeight() / (float) REF_H;
-        Rect scaled = new Rect(Math.round(BOARD_ROI.left * sx),
-                Math.round(BOARD_ROI.top * sy), Math.round(BOARD_ROI.right * sx),
-                Math.round(BOARD_ROI.bottom * sy));
+        Rect scaled = new Rect(Math.round(selected.left * sx),
+                Math.round(selected.top * sy), Math.round(selected.right * sx),
+                Math.round(selected.bottom * sy));
         if (!scaled.intersect(0, 0, working.getWidth(), working.getHeight())
                 || scaled.width() < 20 || scaled.height() < 20) {
             if (rotated) recycle(working);
