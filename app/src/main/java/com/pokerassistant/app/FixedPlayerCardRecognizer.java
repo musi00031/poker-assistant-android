@@ -330,8 +330,26 @@ public final class FixedPlayerCardRecognizer {
 
         if (exactCode != null) {
             if (rank == null || exactCode.charAt(0) == rank.charAt(0)) {
+                // OCR can mistake a tiny suit glyph for a Latin letter (especially
+                // C). On four-colour ClubGG faces, independently inspect the card
+                // index pixels and let a strong red/blue/green signal correct OCR.
+                SuitColor visual = classifySuitColor(region.image);
+                char ocrSuit = exactCode.charAt(1);
+                if (visual != null && visual.code != 's'
+                        && visual.code != ocrSuit
+                        && (visual.code == 'h' || visual.code == 'd' || visual.code == 'c')) {
+                    String corrected = exactCode.substring(0, 1) + visual.code;
+                    Log.i(TAG, region.position + " suit corrected by pixel color: "
+                            + exactCode + " -> " + corrected + " (" + visual.name
+                            + ", score=" + visual.score + ")");
+                    return new CardTextResult(region.position, region.bounds,
+                            corrected, null, raw + "; масть скорректирована по цвету "
+                                    + visual.name + "; OCR=" + exactCode);
+                }
                 return new CardTextResult(region.position, region.bounds,
-                        exactCode, null, raw + "; карта из OCR");
+                        exactCode, null, raw + "; карта из OCR"
+                                + (visual == null ? "; цвет не подтверждён"
+                                : "; цвет=" + visual.name + "/" + visual.score));
             }
         }
 
