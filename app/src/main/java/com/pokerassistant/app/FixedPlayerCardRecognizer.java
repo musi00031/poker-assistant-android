@@ -40,8 +40,11 @@ public final class FixedPlayerCardRecognizer {
     // Fixed ClubGG card regions; keep them separate and include the full index.
     // Calibrated to the confirmed 1220x2712 ClubGG reference frame.
     // Keep the two cards independent; the small overlap prevents a gap at the seam.
-    private static final Rect LEFT_CARD = new Rect(50, 1945, 170, 2140);
-    private static final Rect RIGHT_CARD = new Rect(160, 1945, 280, 2140);
+    // Geometry measured from the supplied 691x1536 ClubGG screenshot and
+    // normalized to the 1220x2712 reference canvas (same aspect ratio).
+    // Tight crops cover the visible rank+suit corner of each overlapping hero card.
+    private static final Rect LEFT_CARD = new Rect(76, 1988, 190, 2180);
+    private static final Rect RIGHT_CARD = new Rect(166, 1988, 286, 2180);
     private static final float INDEX_WIDTH = 0.48f;
     private static final float INDEX_HEIGHT = 0.48f;
 
