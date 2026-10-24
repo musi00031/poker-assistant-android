@@ -208,7 +208,26 @@ final class BoardCardRecognizer {
 
             List<PokerEngine.Card> exact = PlayingCardTextParser.parse(item.text);
             if (exact.size() == 1) {
-                addCandidate(candidates, exact.get(0), bounds, 0.98f);
+                PokerEngine.Card exactCard = exact.get(0);
+                // Validate OCR's Latin suit letter against the pixels around the
+                // tiny rank/suit index. A strong red/blue/green signal can correct
+                // C/S/H/D OCR confusions; black alone cannot separate spades/clubs.
+                String visualSuit = CardImageRecognizer.detectSuitColor(
+                        crop, expand(bounds, 1.35f, crop.getWidth(), crop.getHeight()));
+                char ocrSuit = exactCard.toString().charAt(1);
+                if (visualSuit != null && !visualSuit.isEmpty()
+                        && visualSuit.charAt(0) != 's'
+                        && visualSuit.charAt(0) != ocrSuit
+                        && ("h".equals(visualSuit) || "d".equals(visualSuit)
+                            || "c".equals(visualSuit))) {
+                    try {
+                        exactCard = PokerEngine.Card.parse(
+                                exactCard.toString().substring(0, 1) + visualSuit);
+                        Log.i(TAG, "Board suit corrected by pixel color: "
+                                + item.text + " -> " + exactCard);
+                    } catch (IllegalArgumentException ignored) {}
+                }
+                addCandidate(candidates, exactCard, bounds, 0.98f);
                 continue;
             }
 
