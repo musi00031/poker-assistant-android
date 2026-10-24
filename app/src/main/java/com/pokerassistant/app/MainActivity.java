@@ -106,13 +106,12 @@ public class MainActivity extends Activity {
 
     private void refreshDiagnosticsText() {
         if (ocrResultView == null) return;
-        String model = OnnxCardDetector.getDiagnostic();
-        if (model == null || model.trim().isEmpty()) model = "Модель ещё не дала результат";
-        // Keep score peaks and fallback-mode details visible; the old 190-char
-        // limit hid the only diagnostic that explained failed detections.
-        if (model.length() > 700) model = "…" + model.substring(model.length() - 700);
+        // V2 does not invoke the old detector. Keep the visible status honest:
+        // the app now uses calibrated image crops + independent OCR/color analysis.
         ocrResultView.setText(latestPlayerDiagnostic + "\n\n"
-                + latestBoardDiagnostic + "\n\nONNX: " + model);
+                + latestBoardDiagnostic + "\n\nРАСПОЗНАВАТЕЛЬ V2: старый ONNX отключён"
+                + "\nРежим: калиброванные области + OCR/анализ цвета"
+                + "\nНеподтверждённые карты не должны приниматься как достоверные.");
     }
 
     private int dp(float value) {
