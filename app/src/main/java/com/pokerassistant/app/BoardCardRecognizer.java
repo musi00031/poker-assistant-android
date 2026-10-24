@@ -53,7 +53,7 @@ final class BoardCardRecognizer {
     private BoardCardRecognizer() {}
 
     static void recognize(Context context, Bitmap frame, Callback callback) {
-        Bitmap crop = extractBoardCrop(frame);
+        Bitmap crop = extractBoardCrop(context, frame);
         if (crop == null) {
             callback.onComplete(Collections.emptyList(), "Область общих карт вне кадра");
             return;
@@ -447,7 +447,7 @@ final class BoardCardRecognizer {
         return true;
     }
 
-    private static Bitmap extractBoardCrop(Bitmap frame) {
+    private static Bitmap extractBoardCrop(Context context, Bitmap frame) {
         if (frame == null || frame.isRecycled()
                 || frame.getWidth() < 2 || frame.getHeight() < 2) return null;
 
@@ -461,11 +461,12 @@ final class BoardCardRecognizer {
             rotated = working != frame;
         }
 
+        Rect selected = CalibrationRegions.get(context, "board", BOARD_ROI, REF_W, REF_H);
         float sx = working.getWidth() / (float) REF_W;
         float sy = working.getHeight() / (float) REF_H;
-        Rect scaled = new Rect(Math.round(BOARD_ROI.left * sx),
-                Math.round(BOARD_ROI.top * sy), Math.round(BOARD_ROI.right * sx),
-                Math.round(BOARD_ROI.bottom * sy));
+        Rect scaled = new Rect(Math.round(selected.left * sx),
+                Math.round(selected.top * sy), Math.round(selected.right * sx),
+                Math.round(selected.bottom * sy));
         if (!scaled.intersect(0, 0, working.getWidth(), working.getHeight())
                 || scaled.width() < 20 || scaled.height() < 20) {
             if (rotated) recycle(working);
