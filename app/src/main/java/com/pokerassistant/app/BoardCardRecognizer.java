@@ -59,39 +59,11 @@ final class BoardCardRecognizer {
             return;
         }
 
-        EXECUTOR.execute(() -> {
-            boolean cropTransferredToOcr = false;
-            try {
-                OnnxCardDetector detector = OnnxCardDetector.get(context);
-                List<OnnxCardDetector.Detection> detections = detector.detectAll(crop);
-                List<OnnxCardDetector.Detection> row = chooseBoardRow(
-                        detections, crop.getHeight());
-                List<PokerEngine.Card> cards = parseDetections(row);
-                boolean strongModelRow = cards.size() >= MIN_BOARD_CARDS
-                        && cards.size() <= MAX_BOARD_CARDS
-                        && !hasDuplicates(cards)
-                        && row.stream().allMatch(d -> d.confidence >= MIN_MODEL_CONFIDENCE);
-
-                if (strongModelRow) {
-                    String summary = "ONNX подтверждён: " + format(cards);
-                    Log.i(TAG, summary);
-                    callback.onComplete(cards, summary);
-                } else {
-                    String modelDiagnostic = "ONNX недостаточно уверен (карт="
-                            + cards.size() + ", пики: " + OnnxCardDetector.getDiagnostic() + ")";
-                    cropTransferredToOcr = true;
-                    recognizeByOcrAndColor(crop, callback, modelDiagnostic);
-                }
-            } catch (Exception e) {
-                String failure = "ONNX: " + e.getClass().getSimpleName()
-                        + "; пробую OCR/цвет";
-                Log.e(TAG, "Ошибка ONNX; включаю OCR fallback", e);
-                cropTransferredToOcr = true;
-                recognizeByOcrAndColor(crop, callback, failure);
-            } finally {
-                if (!cropTransferredToOcr && !crop.isRecycled()) crop.recycle();
-            }
-        });
+        // V2: disable the old YOLO/ONNX detector. On actual ClubGG frames it
+        // produced virtually zero class scores; analyze the crop directly instead.
+        Log.i(TAG, "V2 active: legacy ONNX disabled; running multi-view OCR/color pipeline");
+        EXECUTOR.execute(() -> recognizeByOcrAndColor(
+                crop, callback, "V2: старый ONNX отключён"));
     }
 
     private static List<PokerEngine.Card> parseDetections(
