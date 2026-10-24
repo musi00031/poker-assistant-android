@@ -162,32 +162,11 @@ public final class FixedPlayerCardRecognizer {
             return;
         }
 
-        MODEL_EXECUTOR.execute(() -> {
-            boolean modelAccepted = false;
-            try {
-                OnnxCardDetector detector = OnnxCardDetector.get(context);
-                List<CardTextResult> modelResults = new ArrayList<>();
-                for (CardRegion region : regions) {
-                    String code = detector.detect(region.image);
-                    if (code == null) {
-                        modelResults.clear();
-                        break;
-                    }
-                    modelResults.add(new CardTextResult(region.position, region.bounds,
-                            code, null, "ONNX"));
-                }
-                if (modelResults.size() == 2
-                        && !modelResults.get(0).text.equals(modelResults.get(1).text)) {
-                    modelAccepted = true;
-                    releaseRegions(regions);
-                    Log.i(TAG, "ONNX confidently recognized both fixed hero-card regions");
-                    callback.onComplete(modelResults);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "ONNX unavailable; using multi-view OCR and suit-color fallback", e);
-            }
-            if (!modelAccepted) recognizeWithOcr(regions, callback);
-        });
+        // V2 recognition path: deliberately do not load/call the old YOLO ONNX
+        // detector. It returned near-zero class scores on real ClubGG captures.
+        // Run the independent crop/OCR/color pipeline only.
+        Log.i(TAG, "V2 active: fixed calibrated crops; legacy ONNX detector disabled");
+        MODEL_EXECUTOR.execute(() -> recognizeWithOcr(regions, callback));
     }
 
     private static void recognizeWithOcr(List<CardRegion> regions, Callback callback) {
