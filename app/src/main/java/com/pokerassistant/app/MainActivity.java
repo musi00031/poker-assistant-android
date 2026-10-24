@@ -435,7 +435,15 @@ public class MainActivity extends Activity {
             refreshDiagnosticsText();
             calculateCards();
         } else if (!enabled) {
+            boolean wasManual = manualLearningEnabled;
             manualLearningEnabled = false;
+            if (wasManual) {
+                for (int i=0;i<heroCards.length;i++) heroCards[i] = null;
+                for (int i=0;i<boardCards.length;i++) boardCards[i] = null;
+                refreshCardButtons();
+                if (cardSourceStatus != null) cardSourceStatus.setText("Авторежим включён");
+                calculateCards();
+            }
         }
     }
 
