@@ -25,7 +25,10 @@ final class BoardCardRecognizer {
     private static final String TAG = "PokerBoardModel";
     private static final int REF_W = 1220;
     private static final int REF_H = 2712;
-    private static final Rect BOARD_ROI = new Rect(32, 704, 1136, 1824);
+    // Measured from the supplied ClubGG screenshot: only the 3–5 community-card
+    // row is included, excluding pot text, chips, player panels and table logo.
+    // Normalized to the 1220x2712 reference canvas.
+    private static final Rect BOARD_ROI = new Rect(228, 1248, 704, 1498);
     private static final float ROW_Y_TOLERANCE = 0.10f;
     private static final int MIN_BOARD_CARDS = 3;
     private static final int MAX_BOARD_CARDS = 5;
