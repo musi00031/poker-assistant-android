@@ -108,7 +108,9 @@ public final class FixedPlayerCardRecognizer {
         void onComplete(List<CardTextResult> results);
     }
 
-    public static List<CardRegion> extract(Bitmap frame) {
+    public static List<CardRegion> extract(Bitmap frame) { return extract(null, frame); }
+
+    private static List<CardRegion> extract(Context context, Bitmap frame) {
         List<CardRegion> result = new ArrayList<>();
         if (frame == null || frame.isRecycled()
                 || frame.getWidth() <= 0 || frame.getHeight() <= 0) return result;
@@ -123,8 +125,10 @@ public final class FixedPlayerCardRecognizer {
             rotatedFrame = workingFrame != frame;
         }
 
-        addRegion(result, workingFrame, "PLAYER_LEFT", LEFT_CARD);
-        addRegion(result, workingFrame, "PLAYER_RIGHT", RIGHT_CARD);
+        Rect left = context == null ? LEFT_CARD : CalibrationRegions.get(context, "hero_left", LEFT_CARD, REFERENCE_WIDTH, REFERENCE_HEIGHT);
+        Rect right = context == null ? RIGHT_CARD : CalibrationRegions.get(context, "hero_right", RIGHT_CARD, REFERENCE_WIDTH, REFERENCE_HEIGHT);
+        addRegion(result, workingFrame, "PLAYER_LEFT", left);
+        addRegion(result, workingFrame, "PLAYER_RIGHT", right);
         if (rotatedFrame && !workingFrame.isRecycled()) workingFrame.recycle();
         return result;
     }
@@ -151,7 +155,7 @@ public final class FixedPlayerCardRecognizer {
     }
 
     public static void recognize(Context context, Bitmap frame, Callback callback) {
-        List<CardRegion> regions = extract(frame);
+        List<CardRegion> regions = extract(context, frame);
         if (regions.size() != 2) {
             releaseRegions(regions);
             callback.onComplete(new ArrayList<>());
